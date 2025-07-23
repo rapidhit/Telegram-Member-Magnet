@@ -16,6 +16,8 @@ export const telegramAccounts = pgTable("telegram_accounts", {
   firstName: text("first_name"),
   lastName: text("last_name"),
   username: text("username"),
+  apiId: text("api_id").notNull(),
+  apiHash: text("api_hash").notNull(),
   sessionString: text("session_string").notNull(),
   isActive: boolean("is_active").default(true),
   createdAt: timestamp("created_at").defaultNow(),

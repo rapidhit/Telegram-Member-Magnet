@@ -25,6 +25,8 @@ export default function Dashboard() {
     lastName: string | null;
     username: string | null;
     phone: string;
+    apiId?: string;
+    apiHash?: string; 
     isActive: boolean;
   }>({
     queryKey: ["/api/telegram/account", 1],
@@ -33,9 +35,10 @@ export default function Dashboard() {
   });
 
   const isConnected = !!account;
+  const hasApiCredentials = !!(account?.apiId && account?.apiHash);
 
-  // Show connection screen if not connected
-  if (!isConnected) {
+  // Show connection screen if not connected or missing API credentials
+  if (!isConnected || !hasApiCredentials) {
     return (
       <div className="bg-gray-50 min-h-screen py-12">
         <TelegramConnection onConnectionSuccess={() => setCurrentStep(2)} />

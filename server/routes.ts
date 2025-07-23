@@ -66,6 +66,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         firstName: userInfo.firstName,
         lastName: userInfo.lastName,
         username: userInfo.username,
+        apiId,
+        apiHash,
         sessionString: session,
       });
 
@@ -114,14 +116,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ message: "Telegram account not found" });
       }
 
-      const apiId = process.env.TELEGRAM_API_ID || process.env.API_ID || "";
-      const apiHash = process.env.TELEGRAM_API_HASH || process.env.API_HASH || "";
+      // For existing accounts without stored API credentials, return empty channels
+      if (!telegramAccount.apiId || !telegramAccount.apiHash) {
+        return res.json([]);
+      }
 
       const client = await telegramService.getClient(
         telegramAccountId,
         telegramAccount.sessionString,
-        apiId,
-        apiHash
+        telegramAccount.apiId,
+        telegramAccount.apiHash
       );
 
       const adminChannels = await telegramService.getAdminChannels(client);
@@ -160,6 +164,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Upload member list file
   app.post("/api/members/upload", upload.single("memberFile"), async (req: Request & { file?: any }, res) => {
     try {
+      console.log("File upload request received:", {
+        hasFile: !!req.file,
+        body: req.body,
+        headers: req.headers["content-type"]
+      });
+      
       if (!req.file) {
         return res.status(400).json({ message: "No file uploaded" });
       }

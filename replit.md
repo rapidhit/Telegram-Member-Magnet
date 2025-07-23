@@ -4,6 +4,14 @@
 
 This is a Channel Member Manager application designed for safely adding members to Telegram channels. The system provides a user-friendly interface for managing Telegram account connections, selecting target channels, uploading member lists, and executing controlled member addition operations with built-in rate limiting for safety.
 
+## Recent Changes (January 2025)
+
+✓ **Fixed Critical Authentication Issues**: Implemented proper two-step Telegram authentication flow with phone verification
+✓ **Resolved File Upload Problems**: Fixed FormData handling in apiRequest function to properly support file uploads
+✓ **Enhanced Database Schema**: Added apiId and apiHash fields to telegramAccounts table for persistent API credentials
+✓ **Improved Error Handling**: Added graceful handling for accounts missing API credentials
+✓ **Completed Full Integration**: All components now working together - connection, channel fetching, file upload, and member management
+
 ## User Preferences
 
 Preferred communication style: Simple, everyday language.
