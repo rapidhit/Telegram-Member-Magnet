@@ -178,7 +178,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const userIds = fileContent
         .split("\n")
         .map((line: string) => line.trim())
-        .filter((line: string) => line && /^\d+$/.test(line));
+        .filter((line: string) => line && (/^\d+$/.test(line) || line.startsWith("@") || line.includes("bot")));
 
       if (userIds.length === 0) {
         return res.status(400).json({ message: "No valid user IDs found in file" });
@@ -192,6 +192,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         filename: req.file.originalname,
         userIds,
         count: userIds.length,
+        note: "Note: Only users that have interacted with your account or are publicly accessible can be added to channels."
       });
     } catch (error: any) {
       console.error("Error processing member file:", error);
@@ -323,6 +324,39 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error: any) {
       console.error("Error disconnecting account:", error);
       res.status(500).json({ message: "Failed to disconnect account" });
+    }
+  });
+
+  // Get accessible contacts for testing
+  app.get("/api/telegram/contacts/:telegramAccountId", async (req, res) => {
+    try {
+      const telegramAccountId = parseInt(req.params.telegramAccountId);
+      const telegramAccount = await storage.getTelegramAccount(telegramAccountId);
+      
+      if (!telegramAccount) {
+        return res.status(404).json({ message: "Telegram account not found" });
+      }
+
+      if (!telegramAccount.apiId || !telegramAccount.apiHash) {
+        return res.json([]);
+      }
+
+      const client = await telegramService.getClient(
+        telegramAccountId,
+        telegramAccount.sessionString,
+        telegramAccount.apiId,
+        telegramAccount.apiHash
+      );
+
+      const contacts = await telegramService.getAccessibleContacts(client);
+      
+      res.json({
+        contacts,
+        message: "These are user IDs that can potentially be added to your channels"
+      });
+    } catch (error) {
+      console.error("Error getting contacts:", error);
+      res.status(500).json({ message: "Failed to get contacts" });
     }
   });
 

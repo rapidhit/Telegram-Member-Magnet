@@ -94,10 +94,15 @@ export function MemberFileUpload({ onMembersUploaded }: MemberFileUploadProps) {
             <strong>File Format Requirements:</strong>
             <ul className="mt-2 space-y-1 text-sm">
               <li>• One user ID per line</li>
-              <li>• Numeric IDs only (e.g., 123456789)</li>
+              <li>• Numeric IDs (e.g., 123456789) or @usernames</li>
               <li>• No additional characters or formatting</li>
               <li>• Maximum 10,000 users per file</li>
             </ul>
+            <div className="mt-3 p-2 bg-yellow-50 rounded border border-yellow-200">
+              <p className="text-sm text-yellow-800">
+                <strong>Important:</strong> Only users who have interacted with your account or are publicly accessible can be added to channels. Use user IDs from your contact list or members of your existing channels for best results.
+              </p>
+            </div>
           </AlertDescription>
         </Alert>
       </CardContent>

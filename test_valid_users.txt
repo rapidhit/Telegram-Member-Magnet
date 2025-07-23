@@ -1,0 +1,3 @@
+777000
+@username_test_123
+channel_admin_bot

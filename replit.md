@@ -11,6 +11,9 @@ This is a Channel Member Manager application designed for safely adding members 
 ✓ **Enhanced Database Schema**: Added apiId and apiHash fields to telegramAccounts table for persistent API credentials
 ✓ **Improved Error Handling**: Added graceful handling for accounts missing API credentials
 ✓ **Completed Full Integration**: All components now working together - connection, channel fetching, file upload, and member management
+✓ **Removed Profile Picture**: Account info now shows blank profile (just initials)
+✓ **Enhanced Member Addition**: Improved error handling for inaccessible user IDs and added validation
+✓ **Added User Guidance**: Clear instructions about user ID accessibility requirements
 
 ## User Preferences
 

@@ -144,22 +144,31 @@ export class TelegramService {
 
     for (const userId of userIds) {
       try {
+        // Try to get user entity first to validate access
+        const userEntity = await client.getEntity(userId);
+        
+        // If we can get the entity, try to add them
         await client.invoke(
           new (await import("telegram/tl")).Api.channels.InviteToChannel({
             channel: channel,
-            users: [userId],
+            users: [userEntity],
           })
         );
+        
         successful++;
+        console.log(`Successfully added user ${userId} to channel`);
         onProgress?.(successful, failed, userId);
+        
       } catch (error) {
-        console.error(`Failed to add user ${userId}:`, error);
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        console.log(`Skipping inaccessible user ${userId}: ${errorMessage}`);
+        
         failed++;
         onProgress?.(successful, failed, userId);
       }
 
-      // Add delay to prevent rate limiting
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      // Add delay to prevent rate limiting (1-2 seconds)
+      await new Promise(resolve => setTimeout(resolve, 1000 + Math.random() * 1000));
     }
 
     return { successful, failed };
@@ -174,6 +183,22 @@ export class TelegramService {
       username: me.username,
       phone: me.phone,
     };
+  }
+
+  async getAccessibleContacts(client: TelegramClient): Promise<string[]> {
+    try {
+      // Get contacts that can be added to channels
+      const { Api } = await import("telegram/tl");
+      const result = await client.invoke(new Api.contacts.GetContacts({}));
+      
+      if ('users' in result) {
+        return result.users.map((user: any) => user.id.toString());
+      }
+      return [];
+    } catch (error) {
+      console.error("Error getting contacts:", error);
+      return [];
+    }
   }
 
   disconnectClient(telegramAccountId: number) {
