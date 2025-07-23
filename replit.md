@@ -1,0 +1,119 @@
+# Channel Member Manager - replit.md
+
+## Overview
+
+This is a Channel Member Manager application designed for safely adding members to Telegram channels. The system provides a user-friendly interface for managing Telegram account connections, selecting target channels, uploading member lists, and executing controlled member addition operations with built-in rate limiting for safety.
+
+## User Preferences
+
+Preferred communication style: Simple, everyday language.
+
+## System Architecture
+
+### Frontend Architecture
+- **Framework**: React with TypeScript
+- **Routing**: Wouter for client-side routing
+- **State Management**: React Query (TanStack Query) for server state management
+- **UI Components**: Radix UI primitives with custom shadcn/ui components
+- **Styling**: Tailwind CSS with CSS variables for theming
+- **Build Tool**: Vite for development and bundling
+
+### Backend Architecture
+- **Runtime**: Node.js with Express.js
+- **Language**: TypeScript with ES modules
+- **API Design**: RESTful endpoints under `/api` prefix
+- **File Uploads**: Multer middleware for handling member list uploads
+- **Session Management**: Connect-pg-simple for PostgreSQL session storage
+
+### Database Layer
+- **ORM**: Drizzle ORM for type-safe database operations
+- **Database**: PostgreSQL (configured for Neon serverless)
+- **Schema Management**: Drizzle Kit for migrations and schema management
+- **Connection**: Neon serverless driver for database connectivity
+
+## Key Components
+
+### Telegram Integration Service
+- **Purpose**: Manages Telegram API connections and operations
+- **Features**: Account connection, channel management, user information retrieval
+- **Implementation**: Uses telegram library with StringSession for persistent connections
+- **Client Management**: In-memory client storage with connection reuse
+
+### Data Models
+- **Users**: Basic user account management
+- **Telegram Accounts**: Stores Telegram API credentials and session data
+- **Channels**: Channel information and admin status tracking
+- **Member Addition Jobs**: Job queue system for controlled member additions
+- **Activity Logs**: Audit trail for all operations
+
+### UI Components
+- **Dashboard**: Main application interface with step-by-step workflow
+- **Account Info**: Displays connected Telegram account details
+- **Channel Selector**: Interface for choosing target channels
+- **File Upload**: Member list upload with validation
+- **Rate Limiting Config**: Safety controls for addition speed
+- **Execution Panel**: Job monitoring and control interface
+- **Activity Feed**: Recent operations and status updates
+
+### Safety Features
+- **Rate Limiting**: Configurable limits (3-5 additions per minute)
+- **Batch Processing**: Controlled delays between operations
+- **Job Management**: Pause, resume, and stop functionality
+- **Progress Tracking**: Real-time status updates
+- **Error Handling**: Comprehensive error logging and recovery
+
+## Data Flow
+
+1. **Authentication Flow**: Users connect their Telegram accounts using API credentials
+2. **Channel Discovery**: System fetches available channels from connected accounts
+3. **Member Upload**: Users upload text files containing member IDs
+4. **Job Creation**: System creates controlled addition jobs with safety parameters
+5. **Execution**: Background processing with rate limiting and progress tracking
+6. **Monitoring**: Real-time updates and activity logging
+
+## External Dependencies
+
+### Core Dependencies
+- **@neondatabase/serverless**: Neon PostgreSQL serverless driver
+- **drizzle-orm**: Type-safe ORM for database operations
+- **telegram**: Telegram API client library
+- **express**: Web server framework
+- **multer**: File upload handling
+- **@tanstack/react-query**: Server state management
+- **@radix-ui/***: UI component primitives
+
+### Development Tools
+- **vite**: Build tool and development server
+- **typescript**: Type safety and development experience
+- **tailwindcss**: Utility-first CSS framework
+- **drizzle-kit**: Database schema management
+
+### UI Enhancement
+- **class-variance-authority**: Component variant management
+- **clsx**: Conditional CSS class composition
+- **date-fns**: Date manipulation utilities
+- **lucide-react**: Icon library
+
+## Deployment Strategy
+
+### Build Process
+- **Client Build**: Vite bundles React application to `dist/public`
+- **Server Build**: esbuild compiles TypeScript server to `dist/index.js`
+- **Development**: tsx for TypeScript execution in development mode
+
+### Environment Configuration
+- **Database**: Requires `DATABASE_URL` environment variable
+- **Sessions**: PostgreSQL-based session storage
+- **File Storage**: Memory-based multer configuration for uploads
+
+### Production Considerations
+- **Static Assets**: Express serves built client from `dist/public`
+- **API Routes**: All backend routes prefixed with `/api`
+- **Error Handling**: Centralized error middleware with proper status codes
+- **Logging**: Request/response logging for API endpoints
+
+### Safety and Compliance
+- **Rate Limiting**: Built-in protection against Telegram API abuse
+- **Session Security**: Secure session string storage
+- **File Validation**: Strict file type and size validation
+- **Error Recovery**: Graceful handling of API failures and network issues
