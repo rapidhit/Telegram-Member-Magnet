@@ -19,6 +19,9 @@ This is a Channel Member Manager application designed for safely adding members 
 ✓ **Improved Progress Tracking**: Made member addition progress 100% accurate with real-time updates
 ✓ **Enhanced Username Processing**: Fixed Telegram API compatibility for all username formats
 ✓ **Comprehensive Error Handling**: Better detection and logging of successful vs failed member additions
+✓ **Fixed ES Module Deployment Issues**: Resolved telegram library directory import errors for production deployment
+✓ **Enhanced Build Configuration**: Added explicit file extensions and ES module compatibility for all imports
+✓ **Added Production Test Suite**: Created comprehensive testing for build compatibility and import resolution
 
 ## User Preferences
 
@@ -127,6 +130,9 @@ Preferred communication style: Simple, everyday language.
 - **API Routes**: All backend routes prefixed with `/api`
 - **Error Handling**: Centralized error middleware with proper status codes
 - **Logging**: Request/response logging for API endpoints
+- **ES Module Compatibility**: Enhanced build configuration with explicit file extensions
+- **Module Interoperability**: createRequire banner for CommonJS/ES module compatibility
+- **Telegram Library**: Explicit file imports to prevent directory import errors
 
 ### Safety and Compliance
 - **Rate Limiting**: Built-in protection against Telegram API abuse

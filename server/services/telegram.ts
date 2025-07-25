@@ -1,6 +1,4 @@
-import { TelegramClient } from "telegram";
-import { StringSession } from "telegram/sessions";
-import { NewMessage } from "telegram/events";
+import { TelegramClient, StringSession, NewMessage } from "../utils/telegramImports";
 import type { TelegramAccount, Channel } from "@shared/schema";
 
 export interface TelegramChannel {
