@@ -178,7 +178,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const userIds = fileContent
         .split("\n")
         .map((line: string) => line.trim())
-        .filter((line: string) => line && (/^\d+$/.test(line) || line.startsWith("@") || line.includes("bot")));
+        .filter((line: string) => {
+          if (!line) return false;
+          // Accept numeric IDs, @usernames, or plain usernames
+          return /^\d+$/.test(line) || line.startsWith("@") || /^[a-zA-Z][a-zA-Z0-9_]{4,31}$/.test(line);
+        });
 
       if (userIds.length === 0) {
         return res.status(400).json({ message: "No valid user IDs found in file" });

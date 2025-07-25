@@ -144,8 +144,19 @@ export class TelegramService {
 
     for (const userId of userIds) {
       try {
-        // Try to get user entity first to validate access
-        const userEntity = await client.getEntity(userId);
+        let userEntity;
+        
+        // Handle different user ID formats
+        if (userId.startsWith('@')) {
+          // Username format (@username)
+          userEntity = await client.getEntity(userId);
+        } else if (/^\d+$/.test(userId)) {
+          // Numeric user ID
+          userEntity = await client.getEntity(userId);
+        } else {
+          // Try as username without @ prefix
+          userEntity = await client.getEntity(`@${userId}`);
+        }
         
         // If we can get the entity, try to add them
         await client.invoke(

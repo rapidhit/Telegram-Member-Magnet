@@ -14,6 +14,8 @@ This is a Channel Member Manager application designed for safely adding members 
 ✓ **Removed Profile Picture**: Account info now shows blank profile (just initials)
 ✓ **Enhanced Member Addition**: Improved error handling for inaccessible user IDs and added validation
 ✓ **Added User Guidance**: Clear instructions about user ID accessibility requirements
+✓ **Fixed Disconnect Account**: Added proper disconnect functionality with confirmation and cleanup
+✓ **Enhanced Username Support**: Now properly handles @usernames, plain usernames, and numeric user IDs
 
 ## User Preferences
 
