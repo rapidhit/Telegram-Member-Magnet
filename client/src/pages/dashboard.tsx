@@ -20,7 +20,7 @@ export default function Dashboard() {
   const [rateConfig, setRateConfig] = useState({ rateLimit: 4, batchDelay: 120 });
 
   // Check if user has a connected Telegram account
-  const { data: account } = useQuery<{
+  const { data: account, isError } = useQuery<{
     firstName: string | null;
     lastName: string | null;
     username: string | null;
@@ -32,13 +32,15 @@ export default function Dashboard() {
     queryKey: ["/api/telegram/account", 1],
     enabled: true,
     retry: false,
+    refetchOnWindowFocus: true,
+    staleTime: 0, // Always refetch to get latest account status
   });
 
-  const isConnected = !!account;
+  const isConnected = !!account && account.isActive;
   const hasApiCredentials = !!(account?.apiId && account?.apiHash);
 
-  // Show connection screen if not connected or missing API credentials
-  if (!isConnected || !hasApiCredentials) {
+  // Show connection screen if not connected, inactive, missing API credentials, or error
+  if (!isConnected || !hasApiCredentials || isError) {
     return (
       <div className="bg-gray-50 min-h-screen py-12">
         <TelegramConnection onConnectionSuccess={() => setCurrentStep(2)} />

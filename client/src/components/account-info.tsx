@@ -31,10 +31,12 @@ export function AccountInfo() {
         title: "Account disconnected",
         description: "Your Telegram account has been disconnected successfully",
       });
-      // Invalidate and refetch account data
+      // Invalidate all related queries to force re-evaluation
       queryClient.invalidateQueries({ queryKey: ["/api/telegram/account", 1] });
-      // Refresh the page to show connection screen
-      window.location.reload();
+      queryClient.invalidateQueries({ queryKey: ["/api/telegram/channels", 1] });
+      queryClient.invalidateQueries({ queryKey: ["/api/activity", 1] });
+      // Remove cached data to force showing login screen
+      queryClient.removeQueries({ queryKey: ["/api/telegram/account", 1] });
     },
     onError: (error: any) => {
       toast({
