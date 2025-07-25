@@ -1,3 +1,5 @@
-777000
-@username_test_123
-channel_admin_bot
+username1
+@username2
+test_user
+@another_user
+plain_username

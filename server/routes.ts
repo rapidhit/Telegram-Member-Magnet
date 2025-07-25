@@ -400,36 +400,50 @@ async function processMemberAdditionJob(job: any, telegramAccount: any) {
     const batchDelay = (job.batchDelay || 120) * 1000; // Convert to milliseconds
     const intervalDelay = (60 / rateLimit) * 1000; // Delay between individual additions
 
-    let addedCount = 0;
-    let failedCount = 0;
+    let addedCount = job.addedMembers || 0;
+    let failedCount = job.failedMembers || 0;
 
-    for (let i = 0; i < userIds.length; i++) {
+    for (let i = addedCount + failedCount; i < userIds.length; i++) {
       const currentJob = await storage.getMemberAdditionJob(job.id);
       if (currentJob?.status === "paused") {
+        console.log(`Job ${job.id} paused at ${i}/${userIds.length}`);
         break;
       }
 
+      const userId = userIds[i];
+      console.log(`Processing user ${i + 1}/${userIds.length}: ${userId}`);
+
       try {
-        await telegramService.addMembersToChannel(
+        const result = await telegramService.addMembersToChannel(
           client,
           job.channelId,
-          [userIds[i]],
-          (added, failed) => {
-            addedCount = job.addedMembers + added;
-            failedCount = job.failedMembers + failed;
+          [userId],
+          (added, failed, current) => {
+            // Real-time progress update
+            console.log(`Live update: Added=${added}, Failed=${failed}, Current=${current}`);
           }
         );
-        addedCount++;
+        
+        if (result.successful > 0) {
+          addedCount++;
+          console.log(`✓ Successfully added user ${userId} (${addedCount} total)`);
+        } else {
+          failedCount++;
+          console.log(`✗ Failed to add user ${userId} (${failedCount} total failures)`);
+        }
       } catch (error) {
-        console.error(`Failed to add user ${userIds[i]}:`, error);
+        console.error(`Failed to add user ${userId}:`, error);
         failedCount++;
       }
 
-      // Update job progress
+      // Update job progress with exact counts
+      const remaining = userIds.length - (addedCount + failedCount);
       await storage.updateMemberAdditionJob(job.id, {
         addedMembers: addedCount,
         failedMembers: failedCount,
       });
+      
+      console.log(`Progress: ${addedCount} added, ${failedCount} failed, ${remaining} remaining`);
 
       // Rate limiting delay
       if (i < userIds.length - 1) {

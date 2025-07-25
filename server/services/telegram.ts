@@ -145,20 +145,35 @@ export class TelegramService {
     for (const userId of userIds) {
       try {
         let userEntity;
+        let userIdentifier = userId;
         
-        // Handle different user ID formats
+        // Handle different user ID formats with better error handling
         if (userId.startsWith('@')) {
-          // Username format (@username)
-          userEntity = await client.getEntity(userId);
+          // Username format (@username) - try as is first
+          try {
+            userEntity = await client.getEntity(userId);
+          } catch (error) {
+            // If fails, try without @ prefix
+            const username = userId.substring(1);
+            userEntity = await client.getEntity(username);
+            userIdentifier = username;
+          }
         } else if (/^\d+$/.test(userId)) {
-          // Numeric user ID
+          // Numeric user ID - use as string for Telegram API
           userEntity = await client.getEntity(userId);
+          userIdentifier = userId;
         } else {
-          // Try as username without @ prefix
-          userEntity = await client.getEntity(`@${userId}`);
+          // Plain username - try with @ prefix first, then without
+          try {
+            userEntity = await client.getEntity(`@${userId}`);
+            userIdentifier = `@${userId}`;
+          } catch (error) {
+            userEntity = await client.getEntity(userId);
+            userIdentifier = userId;
+          }
         }
         
-        // If we can get the entity, try to add them
+        // If we successfully got the entity, try to add them
         await client.invoke(
           new (await import("telegram/tl")).Api.channels.InviteToChannel({
             channel: channel,
@@ -167,12 +182,12 @@ export class TelegramService {
         );
         
         successful++;
-        console.log(`Successfully added user ${userId} to channel`);
-        onProgress?.(successful, failed, userId);
+        console.log(`Successfully added user ${userIdentifier} to channel`);
+        onProgress?.(successful, failed, userIdentifier);
         
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : String(error);
-        console.log(`Skipping inaccessible user ${userId}: ${errorMessage}`);
+        console.log(`Failed to add user ${userId}: ${errorMessage}`);
         
         failed++;
         onProgress?.(successful, failed, userId);
