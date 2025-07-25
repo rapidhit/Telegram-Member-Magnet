@@ -307,16 +307,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const telegramAccountId = parseInt(req.params.telegramAccountId);
       
+      // Mark account as inactive and clear session data
       await storage.updateTelegramAccount(telegramAccountId, {
         isActive: false,
+        sessionString: "", // Clear session string for security
       });
 
+      // Disconnect the client
       telegramService.disconnectClient(telegramAccountId);
+
+      // Stop any running jobs for this account
+      const runningJobs = await storage.getMemberAdditionJobsByTelegramAccountId(telegramAccountId);
+      for (const job of runningJobs) {
+        if (job.status === "running" || job.status === "pending") {
+          await storage.updateMemberAdditionJob(job.id, {
+            status: "cancelled",
+            completedAt: new Date(),
+          });
+        }
+      }
 
       await storage.createActivityLog({
         telegramAccountId,
         action: "account_disconnected",
-        details: "Telegram account disconnected",
+        details: "Telegram account disconnected and all running jobs stopped",
         status: "info",
       });
 

@@ -1,12 +1,14 @@
 import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation } from "@tanstack/react-query";
+import { apiRequest, queryClient } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
 import { LogOut } from "lucide-react";
 
 export function AccountInfo() {
   const [telegramAccountId] = useState(1); // This would come from auth context
+  const { toast } = useToast();
 
   const { data: account } = useQuery<{
     firstName: string | null;
@@ -18,6 +20,36 @@ export function AccountInfo() {
     queryKey: ["/api/telegram/account", 1], // This would be current user ID from auth
     enabled: true,
   });
+
+  const disconnectMutation = useMutation({
+    mutationFn: async () => {
+      const response = await apiRequest("POST", `/api/telegram/disconnect/${telegramAccountId}`, {});
+      return response.json();
+    },
+    onSuccess: () => {
+      toast({
+        title: "Account disconnected",
+        description: "Your Telegram account has been disconnected successfully",
+      });
+      // Invalidate and refetch account data
+      queryClient.invalidateQueries({ queryKey: ["/api/telegram/account", 1] });
+      // Refresh the page to show connection screen
+      window.location.reload();
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Disconnect failed",
+        description: error.message || "Failed to disconnect account",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const handleDisconnect = () => {
+    if (window.confirm("Are you sure you want to disconnect your Telegram account? This will stop all running jobs.")) {
+      disconnectMutation.mutate();
+    }
+  };
 
   return (
     <Card>
@@ -59,9 +91,11 @@ export function AccountInfo() {
         <Button
           variant="outline"
           className="w-full border-red-300 text-red-700 hover:bg-red-50"
+          onClick={handleDisconnect}
+          disabled={disconnectMutation.isPending}
         >
           <LogOut className="w-4 h-4 mr-2" />
-          Disconnect Account
+          {disconnectMutation.isPending ? "Disconnecting..." : "Disconnect Account"}
         </Button>
       </CardContent>
     </Card>
