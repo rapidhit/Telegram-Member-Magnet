@@ -7,21 +7,20 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { Download, Users, RefreshCw } from "lucide-react";
-import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
 export function ChannelMemberExtractor() {
   const [selectedChannel, setSelectedChannel] = useState<string>("");
-  const [extractLimit, setExtractLimit] = useState<number>(1000);
+  const [extractLimit, setExtractLimit] = useState<number>(200);
   const [extractedMembers, setExtractedMembers] = useState<string[]>([]);
   const { toast } = useToast();
 
-  // Get available channels (ALL channels for extraction, not just admin ones)
-  const { data: channels, isLoading: channelsLoading, refetch: refetchChannels } = useQuery({
-    queryKey: ["/api/telegram/all-channels", 1],
+  // Get available channels
+  const { data: channels, isLoading: channelsLoading } = useQuery({
+    queryKey: ["/api/telegram/channels", 1],
     queryFn: async () => {
-      const response = await apiRequest("GET", "/api/telegram/all-channels/1");
+      const response = await apiRequest("GET", "/api/telegram/channels/1");
       return response.json();
     },
   });
@@ -106,10 +105,12 @@ export function ChannelMemberExtractor() {
       <CardContent className="space-y-4">
         <Alert>
           <AlertDescription>
-            Extract member usernames from channels you're part of. This tool fetches members quickly to provide you with accessible user lists.
+            Extract member usernames from channels you're part of. This gives you a list of users 
+            who are likely accessible since you share common channels.
             <div className="mt-2 p-2 bg-green-50 rounded border border-green-200">
               <p className="text-sm text-green-800">
-                <strong>Fast Extraction:</strong> Optimized to quickly fetch member lists from any channel you belong to.
+                <strong>High Success Rate:</strong> Members from shared channels typically have 
+                better addition success rates than random users.
               </p>
             </div>
           </AlertDescription>
@@ -128,7 +129,7 @@ export function ChannelMemberExtractor() {
                 ) : channels?.length > 0 ? (
                   channels.map((channel: any) => (
                     <SelectItem key={channel.id} value={channel.id}>
-                      {channel.title} ({channel.memberCount?.toLocaleString() || 'Unknown'} members)
+                      {channel.title} ({channel.memberCount || 'Unknown'} members)
                     </SelectItem>
                   ))
                 ) : (
@@ -144,27 +145,15 @@ export function ChannelMemberExtractor() {
               id="extract-limit"
               type="number"
               value={extractLimit}
-              onChange={(e) => setExtractLimit(parseInt(e.target.value) || 2000)}
-              min={50}
-              max={2000}
+              onChange={(e) => setExtractLimit(parseInt(e.target.value) || 200)}
+              min={10}
+              max={1000}
               placeholder="Number of members to extract"
             />
             <p className="text-xs text-gray-500 mt-1">
-              How many members to extract (50-2000). Optimized for speed and reliability.
+              How many members to extract (10-1000). Higher numbers may take longer.
             </p>
           </div>
-        </div>
-
-        <div className="flex gap-2">
-          <Button
-            onClick={() => refetchChannels()}
-            disabled={channelsLoading}
-            variant="ghost"
-            size="sm"
-          >
-            <RefreshCw className={cn("h-4 w-4 mr-1", channelsLoading && "animate-spin")} />
-            Refresh Channels
-          </Button>
         </div>
 
         <div className="flex gap-2">

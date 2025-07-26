@@ -35,10 +35,6 @@ This is a Channel Member Manager application designed for safely adding members 
 ✓ **Better Invitation Methods**: Added multiple invitation approaches for different channel types and numeric ID compatibility
 ✓ **Separated File Upload from Validation**: File uploads now complete instantly, validation is optional to prevent rate limiting
 ✓ **Enhanced Job Control**: Full pause/resume/stop functionality with proper backend endpoints and UI controls
-✓ **Optimized Member Extraction**: Fast extraction with larger chunks (500 members per chunk) and minimal delays for speed
-✓ **Removed Admin-Only Restriction**: Now shows ALL channels you're part of, not just admin channels
-✓ **Speed Improvements**: Removed slow admin checks, reduced delays, and optimized limits for better performance
-✓ **Support Integration**: Added direct link to https://t.me/tele_magnet_bot for user support
 
 ## User Preferences
 

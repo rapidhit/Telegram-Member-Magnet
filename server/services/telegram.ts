@@ -129,38 +129,6 @@ export class TelegramService {
     return adminChannels;
   }
 
-  async getAllChannels(client: TelegramClient): Promise<TelegramChannel[]> {
-    const dialogs = await client.getDialogs({ limit: 500 }); // Increased limit to get more channels
-    const allChannels: TelegramChannel[] = [];
-
-    console.log(`Found ${dialogs.length} total dialogs`);
-
-    for (const dialog of dialogs) {
-      if (dialog.isChannel && dialog.entity) {
-        try {
-          const entity = dialog.entity;
-          const channelId = entity.id.toString();
-          
-          // Skip admin check entirely for speed - assume not admin unless proven otherwise
-          // Include ALL channels, regardless of admin status
-          allChannels.push({
-            id: channelId,
-            title: (entity as any).title || "Unknown Channel",
-            username: (entity as any).username,
-            memberCount: (entity as any).participantsCount || 0,
-            isAdmin: false, // Set to false for speed, admin check can be done later if needed
-          });
-
-        } catch (error) {
-          console.error(`Error processing channel ${dialog.entity?.id}:`, error);
-        }
-      }
-    }
-
-    console.log(`Found ${allChannels.length} channels total`);
-    return allChannels.sort((a, b) => b.memberCount - a.memberCount); // Sort by member count
-  }
-
   async addMembersToChannel(
     client: TelegramClient,
     channelId: string,
@@ -253,7 +221,10 @@ export class TelegramService {
                 // Try via InputUser for numeric IDs
                 const { Api } = await import("telegram/tl");
                 const users = await client.invoke(new Api.users.GetUsers({
-                  id: [userId]
+                  id: [new Api.InputUser({
+                    userId: userId,
+                    accessHash: "0",
+                  })]
                 }));
                 return Array.isArray(users) ? users[0] : users;
               } catch (error3) {
@@ -310,8 +281,13 @@ export class TelegramService {
       async () => {
         if (/^\d+$/.test(userId)) {
           try {
+            const inputPeer = new Api.InputPeerUser({
+              userId: userId,
+              accessHash: "0",
+            });
+            
             const users = await client.invoke(new Api.users.GetUsers({
-              id: [userId]
+              id: [inputPeer]
             }));
             return Array.isArray(users) ? users[0] : users;
           } catch (error) {
@@ -364,7 +340,7 @@ export class TelegramService {
         }
         
         return await client.invoke(new Api.messages.AddChatUser({
-          chatId: parseInt(chatId.toString()),
+          chatId: chatId.toString(),
           userId: userEntity,
           fwdLimit: 100,
         }));
@@ -422,75 +398,78 @@ export class TelegramService {
       if (!client.connected) {
         console.log("Client not connected, attempting to connect...");
         await client.connect();
-        await new Promise(resolve => setTimeout(resolve, 1000));
+        await new Promise(resolve => setTimeout(resolve, 2000));
       }
 
       const memberUsernames = new Set<string>();
+      const { Api } = await import("telegram/tl");
       
-      console.log(`Getting members from channel ${channelId} with limit ${limit}...`);
+      console.log(`Getting members from channel ${channelId}...`);
       
       try {
         const channel = await client.getEntity(channelId);
+        
+        // Try multiple approaches to get more comprehensive member list
         let allParticipants: any[] = [];
         
-        // Optimized strategy: Use larger chunks and minimal delays for speed
+        // Method 1: Standard getParticipants with increased limit
         try {
-          const chunkSize = Math.min(500, limit); // Larger chunks for speed
-          const maxChunks = Math.ceil(Math.min(limit, 5000) / chunkSize); // Cap total requests
-          
-          for (let i = 0; i < maxChunks; i++) {
-            const offset = i * chunkSize;
-            const currentLimit = Math.min(chunkSize, limit - offset);
-            
-            console.log(`Fetching chunk ${i + 1}/${maxChunks} (offset: ${offset}, limit: ${currentLimit})`);
-            
-            try {
-              const participants = await client.getParticipants(channel, { 
-                limit: currentLimit,
-                offset: offset
-              });
-              
-              if (participants.length === 0) {
-                console.log("No more participants found, stopping");
-                break;
-              }
-              
-              allParticipants.push(...participants);
-              console.log(`Chunk ${i + 1}: Found ${participants.length} participants (total: ${allParticipants.length})`);
-              
-              // If we got fewer participants than requested, we've reached the end
-              if (participants.length < currentLimit) {
-                console.log("Reached end of participant list");
-                break;
-              }
-              
-              // Minimal delay for speed - only 500ms between chunks
-              if (i < maxChunks - 1) {
-                await new Promise(resolve => setTimeout(resolve, 500));
-              }
-              
-            } catch (chunkError: any) {
-              console.log(`Chunk ${i + 1} failed:`, chunkError.message);
-              // If this chunk fails, try to continue with what we have
-              break;
-            }
-          }
-          
-        } catch (error: any) {
-          console.log("Chunked approach failed, trying single request:", error.message);
-          
-          // Fallback: Try single request with reasonable limit
-          const participants = await client.getParticipants(channel, { 
-            limit: Math.min(limit, 500)
-          });
-          allParticipants = participants;
+          const participants = await client.getParticipants(channel, { limit });
+          allParticipants = [...participants];
+          console.log(`Method 1: Found ${participants.length} participants`);
+        } catch (error) {
+          console.log("Method 1 failed, trying alternative approaches...");
         }
         
-        console.log(`Total participants retrieved: ${allParticipants.length}`);
+        // Method 2: Get participants in chunks to avoid limits
+        if (allParticipants.length === 0) {
+          try {
+            const chunks = Math.ceil(limit / 200);
+            for (let i = 0; i < chunks; i++) {
+              const offset = i * 200;
+              const chunkLimit = Math.min(200, limit - offset);
+              const participants = await client.getParticipants(channel, { 
+                limit: chunkLimit, 
+                offset 
+              });
+              allParticipants.push(...participants);
+              
+              if (participants.length < chunkLimit) break; // No more users
+              
+              // Small delay between chunks to avoid rate limiting
+              await new Promise(resolve => setTimeout(resolve, 1000));
+            }
+            console.log(`Method 2: Found ${allParticipants.length} participants in chunks`);
+          } catch (error) {
+            console.log("Method 2 failed, trying direct API approach...");
+          }
+        }
+        
+        // Method 3: Direct API call with GetParticipants
+        if (allParticipants.length === 0) {
+          try {
+            const result = await client.invoke(new Api.channels.GetParticipants({
+              channel: channel,
+              filter: new Api.ChannelParticipantsRecent(),
+              offset: 0,
+              limit: limit,
+              hash: "0",
+            }));
+            
+            if ('users' in result) {
+              allParticipants = result.users;
+              console.log(`Method 3: Found ${allParticipants.length} participants via API`);
+            }
+          } catch (error) {
+            console.log("Method 3 failed:", error);
+          }
+        }
         
         if (allParticipants.length === 0) {
-          throw new Error("No participants found in this channel");
+          throw new Error("Unable to retrieve channel members with any method");
         }
+        
+        console.log(`Total participants found: ${allParticipants.length}`);
         
         // Count users with usernames vs without
         let usersWithUsernames = 0;
@@ -523,19 +502,9 @@ export class TelegramService {
         console.log(`Extracted ${result.length} unique member identifiers from channel`);
         return result;
         
-      } catch (error: any) {
+      } catch (error) {
         console.error("Error getting channel participants:", error);
-        
-        // Handle specific error types with helpful messages
-        if (error.message?.includes('CHAT_ADMIN_REQUIRED')) {
-          throw new Error(`Admin permissions required to view members of this channel. You need to be an admin to extract members from this channel.`);
-        } else if (error.message?.includes('CHANNEL_PRIVATE')) {
-          throw new Error(`This is a private channel. You may not have access to view its members.`);
-        } else if (error.message?.includes('CHAT_ID_INVALID')) {
-          throw new Error(`Invalid channel ID. Please make sure you selected a valid channel.`);
-        } else {
-          throw new Error(`Cannot access members of this channel. You may not have sufficient permissions or the channel may be restricted.`);
-        }
+        throw new Error(`Cannot access members of this channel. You may not have sufficient permissions.`);
       }
       
     } catch (error) {
@@ -562,7 +531,7 @@ export class TelegramService {
       try {
         console.log("Getting direct contacts...");
         const contacts = await client.invoke(new Api.contacts.GetContacts({
-          hash: 0
+          hash: 0n
         }));
         
         if ('users' in contacts && Array.isArray(contacts.users)) {

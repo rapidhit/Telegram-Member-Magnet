@@ -121,7 +121,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Get admin channels (for member addition)
+  // Get admin channels
   app.get("/api/telegram/channels/:telegramAccountId", async (req, res) => {
     try {
       const telegramAccountId = parseInt(req.params.telegramAccountId);
@@ -143,12 +143,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         telegramAccount.apiHash
       );
 
-      const allChannels = await telegramService.getAllChannels(client);
+      const adminChannels = await telegramService.getAdminChannels(client);
 
       // Update channels in storage
       const existingChannels = await storage.getChannelsByTelegramAccountId(telegramAccountId);
       
-      for (const channel of allChannels) {
+      for (const channel of adminChannels) {
         const existing = existingChannels.find(c => c.channelId === channel.id);
         if (existing) {
           await storage.updateChannel(existing.id, {
@@ -169,43 +169,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
 
-      res.json(allChannels);
+      res.json(adminChannels);
     } catch (error) {
-      console.error("Error getting channels:", error);
-      res.status(500).json({ message: "Failed to get channels" });
-    }
-  });
-
-  // Get ALL channels (for member extraction) - includes both admin and member channels
-
-  app.get("/api/telegram/all-channels/:telegramAccountId", async (req, res) => {
-    try {
-      const telegramAccountId = parseInt(req.params.telegramAccountId);
-      const telegramAccount = await storage.getTelegramAccount(telegramAccountId);
-      
-      if (!telegramAccount) {
-        return res.status(404).json({ message: "Telegram account not found" });
-      }
-
-      // For existing accounts without stored API credentials, return empty channels
-      if (!telegramAccount.apiId || !telegramAccount.apiHash) {
-        return res.json([]);
-      }
-
-      const client = await telegramService.getClient(
-        telegramAccountId,
-        telegramAccount.sessionString,
-        telegramAccount.apiId,
-        telegramAccount.apiHash
-      );
-
-      console.log("Fetching ALL channels (admin + member)...");
-      const allChannels = await telegramService.getAllChannels(client);
-
-      res.json(allChannels);
-    } catch (error) {
-      console.error("Error getting all channels:", error);
-      res.status(500).json({ message: "Failed to get all channels" });
+      console.error("Error getting admin channels:", error);
+      res.status(500).json({ message: "Failed to get admin channels" });
     }
   });
 
