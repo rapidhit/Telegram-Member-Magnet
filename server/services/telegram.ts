@@ -129,6 +129,51 @@ export class TelegramService {
     return adminChannels;
   }
 
+  async getAllChannels(client: TelegramClient): Promise<TelegramChannel[]> {
+    const dialogs = await client.getDialogs({ limit: 500 }); // Increased limit to get more channels
+    const allChannels: TelegramChannel[] = [];
+
+    console.log(`Found ${dialogs.length} total dialogs`);
+
+    for (const dialog of dialogs) {
+      if (dialog.isChannel && dialog.entity) {
+        try {
+          const entity = dialog.entity;
+          const channelId = entity.id.toString();
+          
+          // Check if user is admin (optional check, doesn't exclude non-admin channels)
+          let isAdmin = false;
+          try {
+            const participants = await client.getParticipants(entity, { 
+              filter: { _: "channelParticipantsAdmins" } as any,
+              limit: 50
+            });
+            const me = await client.getMe();
+            isAdmin = participants.some((p: any) => p.id.equals(me.id));
+          } catch (adminCheckError) {
+            // Admin check failed, but we still include the channel
+            console.log(`Admin check failed for channel ${channelId}, including anyway`);
+          }
+
+          // Include ALL channels, regardless of admin status
+          allChannels.push({
+            id: channelId,
+            title: (entity as any).title || "Unknown Channel",
+            username: (entity as any).username,
+            memberCount: (entity as any).participantsCount || 0,
+            isAdmin: isAdmin,
+          });
+
+        } catch (error) {
+          console.error(`Error processing channel ${dialog.entity?.id}:`, error);
+        }
+      }
+    }
+
+    console.log(`Found ${allChannels.length} channels total (admin: ${allChannels.filter(c => c.isAdmin).length}, member: ${allChannels.filter(c => !c.isAdmin).length})`);
+    return allChannels.sort((a, b) => b.memberCount - a.memberCount); // Sort by member count
+  }
+
   async addMembersToChannel(
     client: TelegramClient,
     channelId: string,

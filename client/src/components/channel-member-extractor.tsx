@@ -7,6 +7,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { Download, Users, RefreshCw } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
@@ -16,11 +17,11 @@ export function ChannelMemberExtractor() {
   const [extractedMembers, setExtractedMembers] = useState<string[]>([]);
   const { toast } = useToast();
 
-  // Get available channels
-  const { data: channels, isLoading: channelsLoading } = useQuery({
-    queryKey: ["/api/telegram/channels", 1],
+  // Get available channels (ALL channels for extraction, not just admin ones)
+  const { data: channels, isLoading: channelsLoading, refetch: refetchChannels } = useQuery({
+    queryKey: ["/api/telegram/all-channels", 1],
     queryFn: async () => {
-      const response = await apiRequest("GET", "/api/telegram/channels/1");
+      const response = await apiRequest("GET", "/api/telegram/all-channels/1");
       return response.json();
     },
   });
@@ -113,7 +114,7 @@ export function ChannelMemberExtractor() {
             </div>
             <div className="mt-2 p-2 bg-blue-50 rounded border border-blue-200">
               <p className="text-sm text-blue-800">
-                <strong>Tip:</strong> Set a higher limit (1000-5000) to get more complete member lists. The tool will automatically handle rate limiting.
+                <strong>All Your Channels:</strong> Now shows ALL channels you're part of (👑 = admin, 👤 = member). You can extract members from any channel you belong to.
               </p>
             </div>
           </AlertDescription>
@@ -132,7 +133,7 @@ export function ChannelMemberExtractor() {
                 ) : channels?.length > 0 ? (
                   channels.map((channel: any) => (
                     <SelectItem key={channel.id} value={channel.id}>
-                      {channel.title} ({channel.memberCount || 'Unknown'} members)
+                      {channel.title} ({channel.memberCount?.toLocaleString() || 'Unknown'} members) {channel.isAdmin ? '👑' : '👤'}
                     </SelectItem>
                   ))
                 ) : (
@@ -157,6 +158,18 @@ export function ChannelMemberExtractor() {
               How many members to extract (100-5000). Higher numbers may take longer but will get more complete member lists.
             </p>
           </div>
+        </div>
+
+        <div className="flex gap-2">
+          <Button
+            onClick={() => refetchChannels()}
+            disabled={channelsLoading}
+            variant="ghost"
+            size="sm"
+          >
+            <RefreshCw className={cn("h-4 w-4 mr-1", channelsLoading && "animate-spin")} />
+            Refresh Channels
+          </Button>
         </div>
 
         <div className="flex gap-2">
