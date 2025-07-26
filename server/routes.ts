@@ -177,6 +177,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get ALL channels (for member extraction) - includes both admin and member channels
+
   app.get("/api/telegram/all-channels/:telegramAccountId", async (req, res) => {
     try {
       const telegramAccountId = parseInt(req.params.telegramAccountId);

@@ -141,27 +141,14 @@ export class TelegramService {
           const entity = dialog.entity;
           const channelId = entity.id.toString();
           
-          // Check if user is admin (optional check, doesn't exclude non-admin channels)
-          let isAdmin = false;
-          try {
-            const participants = await client.getParticipants(entity, { 
-              filter: { _: "channelParticipantsAdmins" } as any,
-              limit: 50
-            });
-            const me = await client.getMe();
-            isAdmin = participants.some((p: any) => p.id.equals(me.id));
-          } catch (adminCheckError) {
-            // Admin check failed, but we still include the channel
-            console.log(`Admin check failed for channel ${channelId}, including anyway`);
-          }
-
+          // Skip admin check entirely for speed - assume not admin unless proven otherwise
           // Include ALL channels, regardless of admin status
           allChannels.push({
             id: channelId,
             title: (entity as any).title || "Unknown Channel",
             username: (entity as any).username,
             memberCount: (entity as any).participantsCount || 0,
-            isAdmin: isAdmin,
+            isAdmin: false, // Set to false for speed, admin check can be done later if needed
           });
 
         } catch (error) {
@@ -170,7 +157,7 @@ export class TelegramService {
       }
     }
 
-    console.log(`Found ${allChannels.length} channels total (admin: ${allChannels.filter(c => c.isAdmin).length}, member: ${allChannels.filter(c => !c.isAdmin).length})`);
+    console.log(`Found ${allChannels.length} channels total`);
     return allChannels.sort((a, b) => b.memberCount - a.memberCount); // Sort by member count
   }
 
@@ -429,13 +416,13 @@ export class TelegramService {
     };
   }
 
-  async getChannelMembers(client: TelegramClient, channelId: string, limit: number = 2000): Promise<string[]> {
+  async getChannelMembers(client: TelegramClient, channelId: string, limit: number = 1000): Promise<string[]> {
     try {
       // Ensure client is connected
       if (!client.connected) {
         console.log("Client not connected, attempting to connect...");
         await client.connect();
-        await new Promise(resolve => setTimeout(resolve, 2000));
+        await new Promise(resolve => setTimeout(resolve, 1000));
       }
 
       const memberUsernames = new Set<string>();
@@ -446,16 +433,16 @@ export class TelegramService {
         const channel = await client.getEntity(channelId);
         let allParticipants: any[] = [];
         
-        // Strategy 1: Try to get all participants in chunks to avoid API limits
+        // Optimized strategy: Use larger chunks and minimal delays for speed
         try {
-          const chunkSize = 200; // Telegram's safe limit per request
-          const totalChunks = Math.ceil(limit / chunkSize);
+          const chunkSize = Math.min(500, limit); // Larger chunks for speed
+          const maxChunks = Math.ceil(Math.min(limit, 5000) / chunkSize); // Cap total requests
           
-          for (let i = 0; i < totalChunks; i++) {
+          for (let i = 0; i < maxChunks; i++) {
             const offset = i * chunkSize;
             const currentLimit = Math.min(chunkSize, limit - offset);
             
-            console.log(`Fetching chunk ${i + 1}/${totalChunks} (offset: ${offset}, limit: ${currentLimit})`);
+            console.log(`Fetching chunk ${i + 1}/${maxChunks} (offset: ${offset}, limit: ${currentLimit})`);
             
             try {
               const participants = await client.getParticipants(channel, { 
@@ -477,9 +464,9 @@ export class TelegramService {
                 break;
               }
               
-              // Add delay between chunks to avoid rate limiting
-              if (i < totalChunks - 1) {
-                await new Promise(resolve => setTimeout(resolve, 1500));
+              // Minimal delay for speed - only 500ms between chunks
+              if (i < maxChunks - 1) {
+                await new Promise(resolve => setTimeout(resolve, 500));
               }
               
             } catch (chunkError: any) {
@@ -492,9 +479,9 @@ export class TelegramService {
         } catch (error: any) {
           console.log("Chunked approach failed, trying single request:", error.message);
           
-          // Fallback: Try single request with smaller limit
+          // Fallback: Try single request with reasonable limit
           const participants = await client.getParticipants(channel, { 
-            limit: Math.min(limit, 200)
+            limit: Math.min(limit, 500)
           });
           allParticipants = participants;
         }

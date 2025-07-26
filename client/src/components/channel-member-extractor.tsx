@@ -13,7 +13,7 @@ import { Label } from "@/components/ui/label";
 
 export function ChannelMemberExtractor() {
   const [selectedChannel, setSelectedChannel] = useState<string>("");
-  const [extractLimit, setExtractLimit] = useState<number>(2000);
+  const [extractLimit, setExtractLimit] = useState<number>(1000);
   const [extractedMembers, setExtractedMembers] = useState<string[]>([]);
   const { toast } = useToast();
 
@@ -106,15 +106,10 @@ export function ChannelMemberExtractor() {
       <CardContent className="space-y-4">
         <Alert>
           <AlertDescription>
-            Extract member usernames from channels you're part of. This tool will fetch members in chunks to get complete member lists.
+            Extract member usernames from channels you're part of. This tool fetches members quickly to provide you with accessible user lists.
             <div className="mt-2 p-2 bg-green-50 rounded border border-green-200">
               <p className="text-sm text-green-800">
-                <strong>Enhanced Extraction:</strong> The tool now fetches members in chunks to get as many members as possible from each channel, up to your specified limit.
-              </p>
-            </div>
-            <div className="mt-2 p-2 bg-blue-50 rounded border border-blue-200">
-              <p className="text-sm text-blue-800">
-                <strong>All Your Channels:</strong> Now shows ALL channels you're part of (👑 = admin, 👤 = member). You can extract members from any channel you belong to.
+                <strong>Fast Extraction:</strong> Optimized to quickly fetch member lists from any channel you belong to.
               </p>
             </div>
           </AlertDescription>
@@ -133,7 +128,7 @@ export function ChannelMemberExtractor() {
                 ) : channels?.length > 0 ? (
                   channels.map((channel: any) => (
                     <SelectItem key={channel.id} value={channel.id}>
-                      {channel.title} ({channel.memberCount?.toLocaleString() || 'Unknown'} members) {channel.isAdmin ? '👑' : '👤'}
+                      {channel.title} ({channel.memberCount?.toLocaleString() || 'Unknown'} members)
                     </SelectItem>
                   ))
                 ) : (
@@ -150,12 +145,12 @@ export function ChannelMemberExtractor() {
               type="number"
               value={extractLimit}
               onChange={(e) => setExtractLimit(parseInt(e.target.value) || 2000)}
-              min={100}
-              max={5000}
+              min={50}
+              max={2000}
               placeholder="Number of members to extract"
             />
             <p className="text-xs text-gray-500 mt-1">
-              How many members to extract (100-5000). Higher numbers may take longer but will get more complete member lists.
+              How many members to extract (50-2000). Optimized for speed and reliability.
             </p>
           </div>
         </div>
