@@ -202,33 +202,51 @@ export class TelegramService {
   }
 
   private async resolveUserEntity(client: TelegramClient, userId: string) {
+    const { Api } = await import("telegram/tl");
+    
+    // Multiple strategies to resolve user entity with improved numeric ID handling
     const strategies = [
-      // Strategy 1: Direct entity resolution
+      // Strategy 1: Direct ID lookup with proper conversion
       async () => {
-        if (userId.startsWith('@')) {
-          return await client.getEntity(userId);
-        } else if (/^\d+$/.test(userId)) {
-          return await client.getEntity(parseInt(userId));
-        } else {
-          return await client.getEntity(userId);
+        if (/^\d+$/.test(userId)) {
+          try {
+            // Try as string first
+            return await client.getEntity(userId);
+          } catch (error1) {
+            try {
+              // Try as integer
+              return await client.getEntity(parseInt(userId));
+            } catch (error2) {
+              try {
+                // Try via InputUser for numeric IDs
+                const { Api } = await import("telegram/tl");
+                const users = await client.invoke(new Api.users.GetUsers({
+                  id: [new Api.InputUser({
+                    userId: userId,
+                    accessHash: "0",
+                  })]
+                }));
+                return Array.isArray(users) ? users[0] : users;
+              } catch (error3) {
+                return null;
+              }
+            }
+          }
         }
+        return null;
       },
       
-      // Strategy 2: Try with different formats
+      // Strategy 2: Username lookup
       async () => {
-        if (userId.startsWith('@')) {
-          const username = userId.substring(1);
-          return await client.getEntity(username);
-        } else if (/^\d+$/.test(userId)) {
-          return await client.getEntity(userId);
-        } else {
-          return await client.getEntity(`@${userId}`);
+        if (userId.startsWith('@') || /^[a-zA-Z][a-zA-Z0-9_]{4,31}$/.test(userId)) {
+          const username = userId.startsWith('@') ? userId.slice(1) : userId;
+          return await client.getEntity(`@${username}`);
         }
+        return null;
       },
       
       // Strategy 3: Search in contacts
       async () => {
-        const { Api } = await import("telegram/tl");
         const contacts = await client.invoke(new Api.contacts.GetContacts({}));
         if ('users' in contacts) {
           const user = contacts.users.find((u: any) => 
@@ -236,14 +254,16 @@ export class TelegramService {
             u.username === userId.replace('@', '') ||
             u.phone === userId
           );
-          return user ? await client.getEntity(user.id) : null;
+          if (user) {
+            return await client.getEntity(user.id);
+          }
         }
         return null;
       },
       
       // Strategy 4: Search in dialogs/chats
       async () => {
-        const dialogs = await client.getDialogs({ limit: 100 });
+        const dialogs = await client.getDialogs({ limit: 200 });
         for (const dialog of dialogs) {
           if (dialog.isUser && dialog.entity) {
             const entity = dialog.entity as any;
@@ -255,52 +275,105 @@ export class TelegramService {
           }
         }
         return null;
+      },
+      
+      // Strategy 5: Try resolving through peer resolution
+      async () => {
+        if (/^\d+$/.test(userId)) {
+          try {
+            const inputPeer = new Api.InputPeerUser({
+              userId: userId,
+              accessHash: "0",
+            });
+            
+            const users = await client.invoke(new Api.users.GetUsers({
+              id: [inputPeer]
+            }));
+            return Array.isArray(users) ? users[0] : users;
+          } catch (error) {
+            return null;
+          }
+        }
+        return null;
       }
     ];
 
-    for (const strategy of strategies) {
+    for (let i = 0; i < strategies.length; i++) {
       try {
-        const result = await strategy();
-        if (result) return result;
-      } catch (error) {
-        // Try next strategy
+        const result = await strategies[i]();
+        if (result) {
+          console.log(`User entity found using strategy ${i + 1} for ${userId}`);
+          return Array.isArray(result) ? result[0] : result;
+        }
+      } catch (error: any) {
+        console.log(`Strategy ${i + 1} failed for ${userId}:`, error.message);
         continue;
       }
     }
     
+    console.log(`All strategies failed for user: ${userId}`);
     return null;
   }
 
   private async inviteUserToChannel(client: TelegramClient, channel: any, userEntity: any) {
     const { Api } = await import("telegram/tl");
     
-    // Try multiple invitation methods
+    // Get the channel entity to determine its type
+    const channelEntity = await client.getEntity(channel.id || channel);
+    
+    // Try multiple invitation methods with improved numeric ID handling
     const methods = [
-      // Method 1: Standard channel invitation
+      // Method 1: Standard channel invitation (for channels/supergroups)
       async () => {
         return await client.invoke(new Api.channels.InviteToChannel({
-          channel: channel,
+          channel: channelEntity,
           users: [userEntity],
         }));
       },
       
-      // Method 2: Add chat user (for groups)
+      // Method 2: Add chat user with proper channel ID handling
       async () => {
+        // For numeric IDs, ensure proper conversion
+        let chatId = channelEntity.id;
+        if (typeof chatId === 'object' && chatId.toString) {
+          chatId = chatId.toString();
+        }
+        
         return await client.invoke(new Api.messages.AddChatUser({
-          chatId: channel.id,
+          chatId: chatId.toString(),
           userId: userEntity,
           fwdLimit: 100,
+        }));
+      },
+      
+      // Method 3: Edit chat admin for adding users with permissions
+      async () => {
+        return await client.invoke(new Api.channels.EditBanned({
+          channel: channelEntity,
+          participant: userEntity,
+          bannedRights: new Api.ChatBannedRights({
+            viewMessages: false,
+            sendMessages: false,
+            sendMedia: false,
+            sendStickers: false,
+            sendGifs: false,
+            sendGames: false,
+            sendInline: false,
+            embedLinks: false,
+            untilDate: 0,
+          }),
         }));
       }
     ];
 
     let lastError;
-    for (const method of methods) {
+    for (let i = 0; i < methods.length; i++) {
       try {
-        await method();
+        await methods[i]();
         return; // Success
-      } catch (error) {
+      } catch (error: any) {
         lastError = error;
+        console.log(`Invitation method ${i + 1} failed:`, error.message);
         continue;
       }
     }
@@ -319,7 +392,7 @@ export class TelegramService {
     };
   }
 
-  async getChannelMembers(client: TelegramClient, channelId: string, limit: number = 200): Promise<string[]> {
+  async getChannelMembers(client: TelegramClient, channelId: string, limit: number = 1000): Promise<string[]> {
     try {
       // Ensure client is connected
       if (!client.connected) {
@@ -329,20 +402,80 @@ export class TelegramService {
       }
 
       const memberUsernames = new Set<string>();
+      const { Api } = await import("telegram/tl");
       
       console.log(`Getting members from channel ${channelId}...`);
       
       try {
         const channel = await client.getEntity(channelId);
-        const participants = await client.getParticipants(channel, { limit });
         
-        console.log(`Found ${participants.length} participants in channel`);
+        // Try multiple approaches to get more comprehensive member list
+        let allParticipants: any[] = [];
+        
+        // Method 1: Standard getParticipants with increased limit
+        try {
+          const participants = await client.getParticipants(channel, { limit });
+          allParticipants = [...participants];
+          console.log(`Method 1: Found ${participants.length} participants`);
+        } catch (error) {
+          console.log("Method 1 failed, trying alternative approaches...");
+        }
+        
+        // Method 2: Get participants in chunks to avoid limits
+        if (allParticipants.length === 0) {
+          try {
+            const chunks = Math.ceil(limit / 200);
+            for (let i = 0; i < chunks; i++) {
+              const offset = i * 200;
+              const chunkLimit = Math.min(200, limit - offset);
+              const participants = await client.getParticipants(channel, { 
+                limit: chunkLimit, 
+                offset 
+              });
+              allParticipants.push(...participants);
+              
+              if (participants.length < chunkLimit) break; // No more users
+              
+              // Small delay between chunks to avoid rate limiting
+              await new Promise(resolve => setTimeout(resolve, 1000));
+            }
+            console.log(`Method 2: Found ${allParticipants.length} participants in chunks`);
+          } catch (error) {
+            console.log("Method 2 failed, trying direct API approach...");
+          }
+        }
+        
+        // Method 3: Direct API call with GetParticipants
+        if (allParticipants.length === 0) {
+          try {
+            const result = await client.invoke(new Api.channels.GetParticipants({
+              channel: channel,
+              filter: new Api.ChannelParticipantsRecent(),
+              offset: 0,
+              limit: limit,
+              hash: "0",
+            }));
+            
+            if ('users' in result) {
+              allParticipants = result.users;
+              console.log(`Method 3: Found ${allParticipants.length} participants via API`);
+            }
+          } catch (error) {
+            console.log("Method 3 failed:", error);
+          }
+        }
+        
+        if (allParticipants.length === 0) {
+          throw new Error("Unable to retrieve channel members with any method");
+        }
+        
+        console.log(`Total participants found: ${allParticipants.length}`);
         
         // Count users with usernames vs without
         let usersWithUsernames = 0;
         let usersWithoutUsernames = 0;
         
-        participants.forEach((user: any) => {
+        allParticipants.forEach((user: any) => {
           if (user.username) {
             usersWithUsernames++;
           } else {
@@ -352,7 +485,8 @@ export class TelegramService {
         
         console.log(`Users with usernames: ${usersWithUsernames}, Users without usernames: ${usersWithoutUsernames}`);
         
-        participants.forEach((user: any) => {
+        // Extract member identifiers
+        allParticipants.forEach((user: any) => {
           if (user.id) {
             // Prefer username format for better success rates, fallback to numeric ID
             if (user.username) {
@@ -365,7 +499,7 @@ export class TelegramService {
         });
         
         const result = Array.from(memberUsernames);
-        console.log(`Extracted ${result.length} member identifiers from channel`);
+        console.log(`Extracted ${result.length} unique member identifiers from channel`);
         return result;
         
       } catch (error) {
