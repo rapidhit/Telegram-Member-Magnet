@@ -1,11 +1,12 @@
 import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
 import { FileUpload } from "@/components/ui/file-upload";
 import { useMutation } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import { Info } from "lucide-react";
+import { Info, CheckCircle, AlertCircle } from "lucide-react";
 
 interface MemberFileUploadProps {
   onMembersUploaded: (userIds: string[]) => void;
@@ -14,6 +15,7 @@ interface MemberFileUploadProps {
 export function MemberFileUpload({ onMembersUploaded }: MemberFileUploadProps) {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [uploadedData, setUploadedData] = useState<any>(null);
+  const [validationData, setValidationData] = useState<any>(null);
   const { toast } = useToast();
 
   const uploadMutation = useMutation({
@@ -23,50 +25,15 @@ export function MemberFileUpload({ onMembersUploaded }: MemberFileUploadProps) {
       const response = await apiRequest("POST", "/api/members/upload", formData);
       return response.json();
     },
-    onSuccess: async (data) => {
-      // Validate the uploaded user IDs
-      try {
-        const validationResponse = await apiRequest("POST", `/api/telegram/validate-users/1`, {
-          userIds: data.userIds
-        });
-        const validation = await validationResponse.json();
-        
-        const updatedData = {
-          ...data,
-          accessibleCount: validation.accessible.length,
-          inaccessibleCount: validation.inaccessible.length,
-          successRate: validation.successRate
-        };
-        
-        setUploadedData(updatedData);
-        onMembersUploaded(validation.accessible); // Only load accessible users
-        
-        if (validation.accessible.length === 0) {
-          toast({
-            title: "No accessible users found",
-            description: "None of the users can be added. Try using usernames instead of IDs, or ensure users are in your contacts.",
-            variant: "destructive",
-          });
-        } else if (validation.inaccessible.length > 0) {
-          toast({
-            title: "Users validated",
-            description: `${validation.accessible.length} accessible, ${validation.inaccessible.length} inaccessible (${validation.successRate}% success rate)`,
-          });
-        } else {
-          toast({
-            title: "All users accessible",
-            description: `${validation.accessible.length} users ready for addition (100% success rate)`,
-          });
-        }
-      } catch (validationError) {
-        // Fallback if validation fails
-        setUploadedData(data);
-        onMembersUploaded(data.userIds);
-        toast({
-          title: "File uploaded (validation skipped)",
-          description: `${data.count} users loaded. Validation failed - will attempt all users.`,
-        });
-      }
+    onSuccess: (data) => {
+      // Set the uploaded data immediately
+      setUploadedData(data);
+      onMembersUploaded(data.userIds);
+      
+      toast({
+        title: "File uploaded successfully",
+        description: `${data.count} users loaded. Click 'Validate Users' to check accessibility before starting.`,
+      });
     },
     onError: (error: any) => {
       toast({
@@ -85,8 +52,54 @@ export function MemberFileUpload({ onMembersUploaded }: MemberFileUploadProps) {
   const handleFileRemove = () => {
     setSelectedFile(null);
     setUploadedData(null);
+    setValidationData(null);
     onMembersUploaded([]);
   };
+
+  const validateMutation = useMutation({
+    mutationFn: async (userIds: string[]) => {
+      const response = await apiRequest("POST", `/api/telegram/validate-users/1`, {
+        userIds
+      });
+      return response.json();
+    },
+    onSuccess: (validation) => {
+      setValidationData(validation);
+      const updatedData = {
+        ...uploadedData,
+        accessibleCount: validation.accessible.length,
+        inaccessibleCount: validation.inaccessible.length,
+        successRate: validation.successRate
+      };
+      setUploadedData(updatedData);
+      onMembersUploaded(validation.accessible); // Update with accessible users only
+      
+      if (validation.accessible.length === 0) {
+        toast({
+          title: "No accessible users found",
+          description: "None of the users can be added. Try using usernames instead of IDs.",
+          variant: "destructive",
+        });
+      } else if (validation.inaccessible.length > 0) {
+        toast({
+          title: "Validation complete",
+          description: `${validation.accessible.length} accessible, ${validation.inaccessible.length} inaccessible (${validation.successRate}% success rate)`,
+        });
+      } else {
+        toast({
+          title: "All users accessible",
+          description: `${validation.accessible.length} users ready for addition (100% success rate)`,
+        });
+      }
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Validation failed",
+        description: error.message || "Could not validate users. They will be attempted during addition.",
+        variant: "destructive",
+      });
+    },
+  });
 
   return (
     <Card>
@@ -121,6 +134,29 @@ export function MemberFileUpload({ onMembersUploaded }: MemberFileUploadProps) {
                   </p>
                 </div>
               </div>
+              
+              {/* Validate Button */}
+              {!validationData && (
+                <Button
+                  onClick={() => validateMutation.mutate(uploadedData.userIds)}
+                  disabled={validateMutation.isPending}
+                  variant="outline"
+                  size="sm"
+                  className="flex items-center space-x-2"
+                >
+                  {validateMutation.isPending ? (
+                    <>
+                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
+                      <span>Validating...</span>
+                    </>
+                  ) : (
+                    <>
+                      <CheckCircle className="w-4 h-4" />
+                      <span>Validate Users</span>
+                    </>
+                  )}
+                </Button>
+              )}
             </div>
             
             {uploadedData.accessibleCount !== undefined && (
