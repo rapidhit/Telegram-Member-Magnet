@@ -40,6 +40,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
     } catch (error: any) {
       console.error("Error sending verification code:", error);
+      
+      // Handle flood wait errors specifically
+      if (error.message?.includes('FloodWaitError') || error.message?.includes('FLOOD')) {
+        const waitMatch = error.message.match(/(\d+) seconds/);
+        const waitSeconds = waitMatch ? parseInt(waitMatch[1]) : 0;
+        const waitHours = Math.ceil(waitSeconds / 3600);
+        
+        return res.status(429).json({ 
+          message: `Your account is rate limited by Telegram. Please wait ${waitHours} hours (${waitSeconds} seconds) before trying again.`,
+          waitSeconds,
+          waitHours,
+          error: "RATE_LIMITED"
+        });
+      }
+      
       res.status(500).json({ message: error.message || "Failed to send verification code" });
     }
   });

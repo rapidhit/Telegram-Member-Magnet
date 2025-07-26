@@ -76,11 +76,21 @@ export function TelegramConnection({ onConnectionSuccess }: TelegramConnectionPr
       });
     },
     onError: (error: any) => {
-      toast({
-        title: "Failed to send code",
-        description: error.message,
-        variant: "destructive",
-      });
+      console.error("Send code error:", error);
+      
+      if (error.message?.includes('rate limited') || error.message?.includes('wait')) {
+        toast({
+          title: "Rate Limited",
+          description: error.message || "Telegram has rate limited your account. Please wait before trying again.",
+          variant: "destructive",
+        });
+      } else {
+        toast({
+          title: "Failed to send code",
+          description: error.message || "Unable to send verification code",
+          variant: "destructive",
+        });
+      }
     },
   });
 

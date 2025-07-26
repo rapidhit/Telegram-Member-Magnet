@@ -27,6 +27,9 @@ This is a Channel Member Manager application designed for safely adding members 
 ✓ **Built Contact Helper Tool**: Allows users to download accessible contacts for guaranteed successful additions
 ✓ **Enhanced User Guidance**: Clear distinction between high-success usernames vs limited-success numeric IDs
 ✓ **Achieved Full Functionality**: Tool now works perfectly for usernames with proper validation and error handling
+✓ **Improved Rate Limit Handling**: Added comprehensive FloodWait error handling with clear user messages
+✓ **Enhanced Error Communication**: Users now get clear wait times and alternative solutions during rate limiting
+✓ **Provided Manual Collection Guide**: Users can bypass rate limits by manually collecting usernames from channels
 
 ## User Preferences
 
