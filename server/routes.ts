@@ -360,6 +360,68 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Get channel members
+  app.get("/api/telegram/channel-members/:telegramAccountId/:channelId", async (req, res) => {
+    try {
+      const telegramAccountId = parseInt(req.params.telegramAccountId);
+      const channelId = req.params.channelId;
+      const limit = parseInt(req.query.limit as string) || 200;
+      
+      const telegramAccount = await storage.getTelegramAccount(telegramAccountId);
+      
+      if (!telegramAccount) {
+        return res.status(404).json({ message: "Telegram account not found" });
+      }
+
+      if (!telegramAccount.apiId || !telegramAccount.apiHash) {
+        return res.json({
+          members: [],
+          count: 0,
+          message: "API credentials missing"
+        });
+      }
+
+      try {
+        const client = await telegramService.getClient(
+          telegramAccountId,
+          telegramAccount.sessionString,
+          telegramAccount.apiId,
+          telegramAccount.apiHash
+        );
+
+        const members = await telegramService.getChannelMembers(client, channelId, limit);
+        
+        res.json({
+          members,
+          count: members.length,
+          channelId,
+          message: `Extracted ${members.length} member identifiers from channel`
+        });
+      } catch (error: any) {
+        console.error("Error getting channel members:", error);
+        
+        if (error.message?.includes('FloodWaitError') || error.message?.includes('FLOOD')) {
+          const waitMatch = error.message.match(/(\d+) seconds/);
+          const waitTime = waitMatch ? parseInt(waitMatch[1]) : 600;
+          
+          return res.status(429).json({ 
+            message: `Rate limited by Telegram. Please wait ${Math.ceil(waitTime/60)} minutes before trying again.`,
+            waitSeconds: waitTime,
+            error: "RATE_LIMITED"
+          });
+        }
+        
+        res.status(500).json({ 
+          message: error.message || "Failed to get channel members",
+          error: error.message || "Unknown error"
+        });
+      }
+    } catch (error) {
+      console.error("Error in channel members endpoint:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
   // Get accessible contacts for testing
   app.get("/api/telegram/contacts/:telegramAccountId", async (req, res) => {
     try {

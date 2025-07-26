@@ -11,6 +11,7 @@ import { AccountInfo } from "@/components/account-info";
 import { RecentActivity } from "@/components/recent-activity";
 import { HelpSupport } from "@/components/help-support";
 import { ContactHelper } from "@/components/contact-helper";
+import { ChannelMemberExtractor } from "@/components/channel-member-extractor";
 import { TelegramConnection } from "@/components/telegram-connection";
 import { Send, Wifi } from "lucide-react";
 
@@ -151,6 +152,7 @@ export default function Dashboard() {
           {/* Sidebar */}
           <div className="lg:col-span-1 space-y-6">
             <AccountInfo />
+            <ChannelMemberExtractor />
             <ContactHelper />
             <RecentActivity />
             <HelpSupport />

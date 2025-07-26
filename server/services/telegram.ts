@@ -319,6 +319,52 @@ export class TelegramService {
     };
   }
 
+  async getChannelMembers(client: TelegramClient, channelId: string, limit: number = 200): Promise<string[]> {
+    try {
+      // Ensure client is connected
+      if (!client.connected) {
+        console.log("Client not connected, attempting to connect...");
+        await client.connect();
+        await new Promise(resolve => setTimeout(resolve, 2000));
+      }
+
+      const memberUsernames = new Set<string>();
+      
+      console.log(`Getting members from channel ${channelId}...`);
+      
+      try {
+        const channel = await client.getEntity(channelId);
+        const participants = await client.getParticipants(channel, { limit });
+        
+        console.log(`Found ${participants.length} participants in channel`);
+        
+        participants.forEach((user: any) => {
+          if (user.id) {
+            // Add numeric ID as fallback
+            memberUsernames.add(user.id.toString());
+            
+            // Prefer username format for better success rates
+            if (user.username) {
+              memberUsernames.add(`@${user.username}`);
+            }
+          }
+        });
+        
+        const result = Array.from(memberUsernames);
+        console.log(`Extracted ${result.length} member identifiers from channel`);
+        return result;
+        
+      } catch (error) {
+        console.error("Error getting channel participants:", error);
+        throw new Error(`Cannot access members of this channel. You may not have sufficient permissions.`);
+      }
+      
+    } catch (error) {
+      console.error("Error getting channel members:", error);
+      throw error;
+    }
+  }
+
   async getAccessibleContacts(client: TelegramClient): Promise<string[]> {
     try {
       // Ensure client is connected
@@ -337,7 +383,7 @@ export class TelegramService {
       try {
         console.log("Getting direct contacts...");
         const contacts = await client.invoke(new Api.contacts.GetContacts({
-          hash: "0"
+          hash: 0n
         }));
         
         if ('users' in contacts && Array.isArray(contacts.users)) {
