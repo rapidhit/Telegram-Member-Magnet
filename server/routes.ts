@@ -370,11 +370,53 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       res.json({
         contacts,
+        count: contacts.length,
         message: "These are user IDs that can potentially be added to your channels"
       });
     } catch (error) {
       console.error("Error getting contacts:", error);
       res.status(500).json({ message: "Failed to get contacts" });
+    }
+  });
+
+  // Validate user IDs before creating job
+  app.post("/api/telegram/validate-users/:telegramAccountId", async (req, res) => {
+    try {
+      const telegramAccountId = parseInt(req.params.telegramAccountId);
+      const { userIds } = req.body;
+      
+      if (!Array.isArray(userIds) || userIds.length === 0) {
+        return res.status(400).json({ message: "Invalid user IDs array" });
+      }
+
+      const telegramAccount = await storage.getTelegramAccount(telegramAccountId);
+      
+      if (!telegramAccount) {
+        return res.status(404).json({ message: "Telegram account not found" });
+      }
+
+      if (!telegramAccount.apiId || !telegramAccount.apiHash) {
+        return res.status(400).json({ message: "Account missing API credentials" });
+      }
+
+      const client = await telegramService.getClient(
+        telegramAccountId,
+        telegramAccount.sessionString,
+        telegramAccount.apiId,
+        telegramAccount.apiHash
+      );
+
+      console.log(`Validating ${userIds.length} user IDs...`);
+      const validation = await telegramService.validateUserIds(client, userIds);
+      
+      res.json({
+        ...validation,
+        successRate: Math.round((validation.accessible.length / validation.total) * 100),
+        message: `${validation.accessible.length} out of ${validation.total} users are accessible and can be added to channels`
+      });
+    } catch (error) {
+      console.error("Error validating user IDs:", error);
+      res.status(500).json({ message: "Failed to validate user IDs" });
     }
   });
 

@@ -1,0 +1,10 @@
+@durov
+@telegram
+@BotFather
+@channel
+@group
+@gif
+@vid
+@pic
+@bold
+@spoiler

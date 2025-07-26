@@ -23,13 +23,50 @@ export function MemberFileUpload({ onMembersUploaded }: MemberFileUploadProps) {
       const response = await apiRequest("POST", "/api/members/upload", formData);
       return response.json();
     },
-    onSuccess: (data) => {
-      setUploadedData(data);
-      onMembersUploaded(data.userIds);
-      toast({
-        title: "File uploaded successfully",
-        description: `Found ${data.count} valid user IDs`,
-      });
+    onSuccess: async (data) => {
+      // Validate the uploaded user IDs
+      try {
+        const validationResponse = await apiRequest("POST", `/api/telegram/validate-users/1`, {
+          userIds: data.userIds
+        });
+        const validation = await validationResponse.json();
+        
+        const updatedData = {
+          ...data,
+          accessibleCount: validation.accessible.length,
+          inaccessibleCount: validation.inaccessible.length,
+          successRate: validation.successRate
+        };
+        
+        setUploadedData(updatedData);
+        onMembersUploaded(validation.accessible); // Only load accessible users
+        
+        if (validation.accessible.length === 0) {
+          toast({
+            title: "No accessible users found",
+            description: "None of the users can be added. Try using usernames instead of IDs, or ensure users are in your contacts.",
+            variant: "destructive",
+          });
+        } else if (validation.inaccessible.length > 0) {
+          toast({
+            title: "Users validated",
+            description: `${validation.accessible.length} accessible, ${validation.inaccessible.length} inaccessible (${validation.successRate}% success rate)`,
+          });
+        } else {
+          toast({
+            title: "All users accessible",
+            description: `${validation.accessible.length} users ready for addition (100% success rate)`,
+          });
+        }
+      } catch (validationError) {
+        // Fallback if validation fails
+        setUploadedData(data);
+        onMembersUploaded(data.userIds);
+        toast({
+          title: "File uploaded (validation skipped)",
+          description: `${data.count} users loaded. Validation failed - will attempt all users.`,
+        });
+      }
     },
     onError: (error: any) => {
       toast({
@@ -73,7 +110,7 @@ export function MemberFileUpload({ onMembersUploaded }: MemberFileUploadProps) {
         )}
 
         {uploadedData && (
-          <div className="p-4 bg-gray-50 rounded-lg">
+          <div className="p-4 bg-gray-50 rounded-lg space-y-3">
             <div className="flex items-center justify-between">
               <div className="flex items-center space-x-3">
                 <div className="text-[hsl(207,90%,54%)]">📄</div>
@@ -85,6 +122,34 @@ export function MemberFileUpload({ onMembersUploaded }: MemberFileUploadProps) {
                 </div>
               </div>
             </div>
+            
+            {uploadedData.accessibleCount !== undefined && (
+              <div className="border-t pt-3">
+                <div className="grid grid-cols-3 gap-4 text-center">
+                  <div className="p-2 bg-green-50 rounded">
+                    <div className="text-lg font-semibold text-green-700">
+                      {uploadedData.accessibleCount}
+                    </div>
+                    <div className="text-xs text-green-600">Accessible</div>
+                  </div>
+                  <div className="p-2 bg-red-50 rounded">
+                    <div className="text-lg font-semibold text-red-700">
+                      {uploadedData.inaccessibleCount}
+                    </div>
+                    <div className="text-xs text-red-600">Inaccessible</div>
+                  </div>
+                  <div className="p-2 bg-blue-50 rounded">
+                    <div className="text-lg font-semibold text-blue-700">
+                      {uploadedData.successRate}%
+                    </div>
+                    <div className="text-xs text-blue-600">Success Rate</div>
+                  </div>
+                </div>
+                <p className="text-xs text-gray-600 mt-2 text-center">
+                  Only accessible users will be processed for addition
+                </p>
+              </div>
+            )}
           </div>
         )}
 
@@ -100,9 +165,18 @@ export function MemberFileUpload({ onMembersUploaded }: MemberFileUploadProps) {
               <li>• No additional characters or formatting</li>
               <li>• Maximum 10,000 users per file</li>
             </ul>
-            <div className="mt-3 p-2 bg-green-50 rounded border border-green-200">
-              <p className="text-sm text-green-800">
-                <strong>Tip:</strong> Usernames work best for adding members. You can get usernames from channel member lists or by searching users in Telegram.
+            <div className="mt-3 p-2 bg-amber-50 rounded border border-amber-200">
+              <p className="text-sm text-amber-800">
+                <strong>Important:</strong> Only users you can access will be added successfully:
+              </p>
+              <ul className="text-sm text-amber-700 mt-1 ml-4">
+                <li>• Users in your contact list</li>
+                <li>• Users with public usernames (e.g., @username)</li>
+                <li>• Users from shared groups/channels</li>
+                <li>• Users you've messaged before</li>
+              </ul>
+              <p className="text-sm text-amber-800 mt-2">
+                <strong>Best practice:</strong> Use public usernames (@username) for highest success rate.
               </p>
             </div>
           </AlertDescription>

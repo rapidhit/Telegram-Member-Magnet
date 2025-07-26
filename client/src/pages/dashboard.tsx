@@ -10,6 +10,7 @@ import { ExecutionPanel } from "@/components/execution-panel";
 import { AccountInfo } from "@/components/account-info";
 import { RecentActivity } from "@/components/recent-activity";
 import { HelpSupport } from "@/components/help-support";
+import { ContactHelper } from "@/components/contact-helper";
 import { TelegramConnection } from "@/components/telegram-connection";
 import { Send, Settings, Wifi } from "lucide-react";
 
@@ -153,6 +154,7 @@ export default function Dashboard() {
           {/* Sidebar */}
           <div className="lg:col-span-1 space-y-6">
             <AccountInfo />
+            <ContactHelper />
             <RecentActivity />
             <HelpSupport />
           </div>
