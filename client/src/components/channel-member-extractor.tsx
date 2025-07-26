@@ -12,7 +12,7 @@ import { Label } from "@/components/ui/label";
 
 export function ChannelMemberExtractor() {
   const [selectedChannel, setSelectedChannel] = useState<string>("");
-  const [extractLimit, setExtractLimit] = useState<number>(500);
+  const [extractLimit, setExtractLimit] = useState<number>(2000);
   const [extractedMembers, setExtractedMembers] = useState<string[]>([]);
   const { toast } = useToast();
 
@@ -105,12 +105,15 @@ export function ChannelMemberExtractor() {
       <CardContent className="space-y-4">
         <Alert>
           <AlertDescription>
-            Extract member usernames from channels you're part of. This gives you a list of users 
-            who are likely accessible since you share common channels.
+            Extract member usernames from channels you're part of. This tool will fetch members in chunks to get complete member lists.
             <div className="mt-2 p-2 bg-green-50 rounded border border-green-200">
               <p className="text-sm text-green-800">
-                <strong>High Success Rate:</strong> Members from shared channels typically have 
-                better addition success rates than random users.
+                <strong>Enhanced Extraction:</strong> The tool now fetches members in chunks to get as many members as possible from each channel, up to your specified limit.
+              </p>
+            </div>
+            <div className="mt-2 p-2 bg-blue-50 rounded border border-blue-200">
+              <p className="text-sm text-blue-800">
+                <strong>Tip:</strong> Set a higher limit (1000-5000) to get more complete member lists. The tool will automatically handle rate limiting.
               </p>
             </div>
           </AlertDescription>
@@ -145,13 +148,13 @@ export function ChannelMemberExtractor() {
               id="extract-limit"
               type="number"
               value={extractLimit}
-              onChange={(e) => setExtractLimit(parseInt(e.target.value) || 200)}
-              min={10}
-              max={1000}
+              onChange={(e) => setExtractLimit(parseInt(e.target.value) || 2000)}
+              min={100}
+              max={5000}
               placeholder="Number of members to extract"
             />
             <p className="text-xs text-gray-500 mt-1">
-              How many members to extract (10-1000). Higher numbers may take longer.
+              How many members to extract (100-5000). Higher numbers may take longer but will get more complete member lists.
             </p>
           </div>
         </div>

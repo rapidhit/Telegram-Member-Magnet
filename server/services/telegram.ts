@@ -384,7 +384,7 @@ export class TelegramService {
     };
   }
 
-  async getChannelMembers(client: TelegramClient, channelId: string, limit: number = 500): Promise<string[]> {
+  async getChannelMembers(client: TelegramClient, channelId: string, limit: number = 2000): Promise<string[]> {
     try {
       // Ensure client is connected
       if (!client.connected) {
@@ -395,23 +395,76 @@ export class TelegramService {
 
       const memberUsernames = new Set<string>();
       
-      console.log(`Getting members from channel ${channelId}...`);
+      console.log(`Getting members from channel ${channelId} with limit ${limit}...`);
       
       try {
         const channel = await client.getEntity(channelId);
+        let allParticipants: any[] = [];
         
-        // Use simple, reliable approach that works with most channels
-        const participants = await client.getParticipants(channel, { 
-          limit: Math.min(limit, 200) // Start with smaller, safer limit
-        });
+        // Strategy 1: Try to get all participants in chunks to avoid API limits
+        try {
+          const chunkSize = 200; // Telegram's safe limit per request
+          const totalChunks = Math.ceil(limit / chunkSize);
+          
+          for (let i = 0; i < totalChunks; i++) {
+            const offset = i * chunkSize;
+            const currentLimit = Math.min(chunkSize, limit - offset);
+            
+            console.log(`Fetching chunk ${i + 1}/${totalChunks} (offset: ${offset}, limit: ${currentLimit})`);
+            
+            try {
+              const participants = await client.getParticipants(channel, { 
+                limit: currentLimit,
+                offset: offset
+              });
+              
+              if (participants.length === 0) {
+                console.log("No more participants found, stopping");
+                break;
+              }
+              
+              allParticipants.push(...participants);
+              console.log(`Chunk ${i + 1}: Found ${participants.length} participants (total: ${allParticipants.length})`);
+              
+              // If we got fewer participants than requested, we've reached the end
+              if (participants.length < currentLimit) {
+                console.log("Reached end of participant list");
+                break;
+              }
+              
+              // Add delay between chunks to avoid rate limiting
+              if (i < totalChunks - 1) {
+                await new Promise(resolve => setTimeout(resolve, 1500));
+              }
+              
+            } catch (chunkError: any) {
+              console.log(`Chunk ${i + 1} failed:`, chunkError.message);
+              // If this chunk fails, try to continue with what we have
+              break;
+            }
+          }
+          
+        } catch (error: any) {
+          console.log("Chunked approach failed, trying single request:", error.message);
+          
+          // Fallback: Try single request with smaller limit
+          const participants = await client.getParticipants(channel, { 
+            limit: Math.min(limit, 200)
+          });
+          allParticipants = participants;
+        }
         
-        console.log(`Found ${participants.length} participants in channel`);
+        console.log(`Total participants retrieved: ${allParticipants.length}`);
+        
+        if (allParticipants.length === 0) {
+          throw new Error("No participants found in this channel");
+        }
         
         // Count users with usernames vs without
         let usersWithUsernames = 0;
         let usersWithoutUsernames = 0;
         
-        participants.forEach((user: any) => {
+        allParticipants.forEach((user: any) => {
           if (user.username) {
             usersWithUsernames++;
           } else {
@@ -422,7 +475,7 @@ export class TelegramService {
         console.log(`Users with usernames: ${usersWithUsernames}, Users without usernames: ${usersWithoutUsernames}`);
         
         // Extract member identifiers
-        participants.forEach((user: any) => {
+        allParticipants.forEach((user: any) => {
           if (user.id) {
             // Prefer username format for better success rates, fallback to numeric ID
             if (user.username) {
