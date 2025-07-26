@@ -66,6 +66,12 @@ export function ContactHelper() {
           <AlertDescription>
             Get a list of users you can successfully add to channels. This includes your contacts, 
             users from shared groups, and users you've messaged before.
+            <div className="mt-2 p-2 bg-blue-50 rounded border border-blue-200">
+              <p className="text-sm text-blue-800">
+                <strong>Pro Tip:</strong> For highest success rates, manually collect usernames (@username) 
+                from channel member lists instead of using numeric IDs.
+              </p>
+            </div>
           </AlertDescription>
         </Alert>
 

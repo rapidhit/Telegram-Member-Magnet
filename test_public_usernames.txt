@@ -8,3 +8,8 @@
 @pic
 @bold
 @spoiler
+@username
+@admin
+@support
+@news
+@updates

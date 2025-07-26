@@ -165,19 +165,26 @@ export function MemberFileUpload({ onMembersUploaded }: MemberFileUploadProps) {
               <li>• No additional characters or formatting</li>
               <li>• Maximum 10,000 users per file</li>
             </ul>
-            <div className="mt-3 p-2 bg-amber-50 rounded border border-amber-200">
-              <p className="text-sm text-amber-800">
-                <strong>Important:</strong> Only users you can access will be added successfully:
-              </p>
-              <ul className="text-sm text-amber-700 mt-1 ml-4">
-                <li>• Users in your contact list</li>
-                <li>• Users with public usernames (e.g., @username)</li>
-                <li>• Users from shared groups/channels</li>
-                <li>• Users you've messaged before</li>
-              </ul>
-              <p className="text-sm text-amber-800 mt-2">
-                <strong>Best practice:</strong> Use public usernames (@username) for highest success rate.
-              </p>
+            <div className="mt-3 space-y-2">
+              <div className="p-2 bg-green-50 rounded border border-green-200">
+                <p className="text-sm text-green-800">
+                  <strong>✅ RECOMMENDED: Use Usernames</strong>
+                </p>
+                <p className="text-sm text-green-700 mt-1">
+                  Usernames (@username) have the highest success rate because they're publicly resolvable. 
+                  Get usernames from channel member lists, user profiles, or by searching in Telegram.
+                </p>
+              </div>
+              
+              <div className="p-2 bg-red-50 rounded border border-red-200">
+                <p className="text-sm text-red-800">
+                  <strong>⚠️ LIMITED SUCCESS: Numeric User IDs</strong>
+                </p>
+                <p className="text-sm text-red-700 mt-1">
+                  Numeric IDs (123456789) only work for users in your contacts, shared groups, or previous conversations. 
+                  Random IDs from external sources typically fail.
+                </p>
+              </div>
             </div>
           </AlertDescription>
         </Alert>
