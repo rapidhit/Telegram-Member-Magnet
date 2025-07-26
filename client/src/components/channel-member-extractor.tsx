@@ -40,9 +40,10 @@ export function ChannelMemberExtractor() {
     },
     onSuccess: (data) => {
       setExtractedMembers(data.members || []);
+      const stats = data.stats || {};
       toast({
         title: "Members extracted successfully",
-        description: `Found ${data.count || 0} member identifiers`,
+        description: `Found ${data.count || 0} unique members (${stats.usernameFormat || 0} with @usernames, ${stats.numericFormat || 0} numeric IDs)`,
       });
     },
     onError: (error: any) => {
@@ -180,7 +181,13 @@ export function ChannelMemberExtractor() {
           <div className="p-4 bg-gray-50 rounded-lg">
             <div className="flex items-center justify-between mb-2">
               <h4 className="font-medium text-gray-900">Extracted Members</h4>
-              <span className="text-sm text-gray-500">{extractedMembers.length} total</span>
+              <div className="text-right">
+                <span className="text-sm text-gray-500">{extractedMembers.length} unique members</span>
+                <div className="text-xs text-gray-400">
+                  {extractedMembers.filter(m => m.startsWith('@')).length} @usernames, {' '}
+                  {extractedMembers.filter(m => !m.startsWith('@')).length} numeric IDs
+                </div>
+              </div>
             </div>
             <div className="max-h-32 overflow-y-auto text-sm text-gray-600 space-y-1">
               {extractedMembers.slice(0, 10).map((member, index) => (

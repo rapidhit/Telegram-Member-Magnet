@@ -395,7 +395,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
           members,
           count: members.length,
           channelId,
-          message: `Extracted ${members.length} member identifiers from channel`
+          message: `Extracted ${members.length} unique members from channel`,
+          stats: {
+            totalMembers: members.length,
+            usernameFormat: members.filter(m => m.startsWith('@')).length,
+            numericFormat: members.filter(m => !m.startsWith('@')).length
+          }
         });
       } catch (error: any) {
         console.error("Error getting channel members:", error);

@@ -338,14 +338,28 @@ export class TelegramService {
         
         console.log(`Found ${participants.length} participants in channel`);
         
+        // Count users with usernames vs without
+        let usersWithUsernames = 0;
+        let usersWithoutUsernames = 0;
+        
+        participants.forEach((user: any) => {
+          if (user.username) {
+            usersWithUsernames++;
+          } else {
+            usersWithoutUsernames++;
+          }
+        });
+        
+        console.log(`Users with usernames: ${usersWithUsernames}, Users without usernames: ${usersWithoutUsernames}`);
+        
         participants.forEach((user: any) => {
           if (user.id) {
-            // Add numeric ID as fallback
-            memberUsernames.add(user.id.toString());
-            
-            // Prefer username format for better success rates
+            // Prefer username format for better success rates, fallback to numeric ID
             if (user.username) {
               memberUsernames.add(`@${user.username}`);
+            } else {
+              // Only add numeric ID if no username exists
+              memberUsernames.add(user.id.toString());
             }
           }
         });
