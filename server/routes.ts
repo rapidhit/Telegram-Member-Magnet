@@ -356,26 +356,51 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       if (!telegramAccount.apiId || !telegramAccount.apiHash) {
-        return res.json([]);
+        return res.json({
+          contacts: [],
+          count: 0,
+          message: "API credentials missing"
+        });
       }
 
-      const client = await telegramService.getClient(
-        telegramAccountId,
-        telegramAccount.sessionString,
-        telegramAccount.apiId,
-        telegramAccount.apiHash
-      );
+      try {
+        const client = await telegramService.getClient(
+          telegramAccountId,
+          telegramAccount.sessionString,
+          telegramAccount.apiId,
+          telegramAccount.apiHash
+        );
 
-      const contacts = await telegramService.getAccessibleContacts(client);
-      
-      res.json({
-        contacts,
-        count: contacts.length,
-        message: "These are user IDs that can potentially be added to your channels"
-      });
+        const contacts = await telegramService.getAccessibleContacts(client);
+        
+        res.json({
+          contacts,
+          count: contacts.length,
+          message: "These are user IDs that can potentially be added to your channels"
+        });
+      } catch (error: any) {
+        console.error("Error getting contacts:", error);
+        
+        // Handle flood wait errors gracefully
+        if (error.message?.includes('FloodWaitError') || error.message?.includes('FLOOD')) {
+          const waitMatch = error.message.match(/(\d+) seconds/);
+          const waitTime = waitMatch ? parseInt(waitMatch[1]) : 600;
+          
+          return res.status(429).json({ 
+            message: `Rate limited by Telegram. Please wait ${Math.ceil(waitTime/60)} minutes before trying again.`,
+            waitSeconds: waitTime,
+            error: "RATE_LIMITED"
+          });
+        }
+        
+        res.status(500).json({ 
+          message: "Failed to get contacts. Account may be rate limited or disconnected.",
+          error: error.message || "Unknown error"
+        });
+      }
     } catch (error) {
-      console.error("Error getting contacts:", error);
-      res.status(500).json({ message: "Failed to get contacts" });
+      console.error("Error in contacts endpoint:", error);
+      res.status(500).json({ message: "Internal server error" });
     }
   });
 

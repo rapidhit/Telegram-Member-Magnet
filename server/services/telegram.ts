@@ -138,36 +138,64 @@ export class TelegramService {
     let successful = 0;
     let failed = 0;
 
-    const channel = await client.getEntity(channelId);
-
-    for (const userId of userIds) {
-      try {
-        let userEntity;
-        
-        // Enhanced entity resolution with multiple fallback strategies
-        userEntity = await this.resolveUserEntity(client, userId);
-        
-        if (!userEntity) {
-          throw new Error(`Could not resolve user entity for ${userId} - user may not be accessible`);
-        }
-        
-        // Enhanced invitation method with fallback strategies
-        await this.inviteUserToChannel(client, channel, userEntity);
-        
-        successful++;
-        console.log(`Successfully added user ${userId} to channel`);
-        onProgress?.(successful, failed, userId);
-        
-      } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error);
-        console.log(`Failed to add user ${userId}: ${errorMessage}`);
-        
-        failed++;
-        onProgress?.(successful, failed, userId);
+    try {
+      // Ensure client is connected
+      if (!client.connected) {
+        console.log("Client disconnected, attempting to reconnect...");
+        await client.connect();
+        await new Promise(resolve => setTimeout(resolve, 2000)); // Wait for connection
       }
 
-      // Add delay to prevent rate limiting (1-2 seconds)
-      await new Promise(resolve => setTimeout(resolve, 1000 + Math.random() * 1000));
+      const channel = await client.getEntity(channelId);
+
+      for (const userId of userIds) {
+        try {
+          // Check connection before each operation
+          if (!client.connected) {
+            console.log("Client disconnected during operation, attempting to reconnect...");
+            await client.connect();
+            await new Promise(resolve => setTimeout(resolve, 2000));
+          }
+
+          let userEntity;
+          
+          // Enhanced entity resolution with multiple fallback strategies
+          userEntity = await this.resolveUserEntity(client, userId);
+          
+          if (!userEntity) {
+            throw new Error(`Could not resolve user entity for ${userId} - user may not be accessible`);
+          }
+          
+          // Enhanced invitation method with fallback strategies
+          await this.inviteUserToChannel(client, channel, userEntity);
+          
+          successful++;
+          console.log(`Successfully added user ${userId} to channel`);
+          onProgress?.(successful, failed, userId);
+          
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          console.log(`Failed to add user ${userId}: ${errorMessage}`);
+          
+          // Handle flood wait errors specifically
+          if (errorMessage.includes('FloodWaitError') || errorMessage.includes('FLOOD_WAIT')) {
+            const waitMatch = errorMessage.match(/(\d+) seconds/);
+            if (waitMatch) {
+              const waitSeconds = parseInt(waitMatch[1]);
+              console.log(`Flood wait detected, pausing for ${waitSeconds} seconds...`);
+              await new Promise(resolve => setTimeout(resolve, (waitSeconds + 5) * 1000));
+            }
+          }
+          
+          failed++;
+          onProgress?.(successful, failed, userId);
+        }
+
+        // Increased delay to prevent rate limiting (3-5 seconds)
+        await new Promise(resolve => setTimeout(resolve, 3000 + Math.random() * 2000));
+      }
+    } catch (error) {
+      console.error("Critical error in addMembersToChannel:", error);
     }
 
     return { successful, failed };
@@ -293,19 +321,35 @@ export class TelegramService {
 
   async getAccessibleContacts(client: TelegramClient): Promise<string[]> {
     try {
+      // Ensure client is connected
+      if (!client.connected) {
+        console.log("Client not connected, attempting to connect...");
+        await client.connect();
+        await new Promise(resolve => setTimeout(resolve, 2000));
+      }
+
       const accessibleUsers = new Set<string>();
       const { Api } = await import("telegram/tl");
       
+      console.log("Starting to collect accessible contacts...");
+      
       // Method 1: Get direct contacts
       try {
-        const contacts = await client.invoke(new Api.contacts.GetContacts({}));
-        if ('users' in contacts) {
+        console.log("Getting direct contacts...");
+        const contacts = await client.invoke(new Api.contacts.GetContacts({
+          hash: "0"
+        }));
+        
+        if ('users' in contacts && Array.isArray(contacts.users)) {
           contacts.users.forEach((user: any) => {
-            accessibleUsers.add(user.id.toString());
-            if (user.username) {
-              accessibleUsers.add(`@${user.username}`);
+            if (user.id) {
+              accessibleUsers.add(user.id.toString());
+              if (user.username) {
+                accessibleUsers.add(`@${user.username}`);
+              }
             }
           });
+          console.log(`Found ${contacts.users.length} direct contacts`);
         }
       } catch (error) {
         console.log("Could not get contacts:", error);
@@ -313,31 +357,44 @@ export class TelegramService {
       
       // Method 2: Get users from recent dialogs
       try {
-        const dialogs = await client.getDialogs({ limit: 200 });
+        console.log("Getting users from dialogs...");
+        const dialogs = await client.getDialogs({ limit: 100 });
+        let dialogUsers = 0;
+        
         for (const dialog of dialogs) {
           if (dialog.isUser && dialog.entity) {
             const entity = dialog.entity as any;
-            accessibleUsers.add(entity.id.toString());
-            if (entity.username) {
-              accessibleUsers.add(`@${entity.username}`);
+            if (entity.id) {
+              accessibleUsers.add(entity.id.toString());
+              if (entity.username) {
+                accessibleUsers.add(`@${entity.username}`);
+              }
+              dialogUsers++;
             }
           }
         }
+        console.log(`Found ${dialogUsers} users from dialogs`);
       } catch (error) {
         console.log("Could not get dialogs:", error);
       }
       
-      // Method 3: Get participants from groups (potential mutual contacts)
+      // Method 3: Get participants from a few groups (limited to prevent timeouts)
       try {
-        const dialogs = await client.getDialogs({ limit: 50 });
+        console.log("Getting users from group participants...");
+        const dialogs = await client.getDialogs({ limit: 10 }); // Reduced limit
+        let groupUsers = 0;
+        
         for (const dialog of dialogs) {
-          if (dialog.isGroup || dialog.isChannel) {
+          if ((dialog.isGroup || dialog.isChannel) && dialog.entity) {
             try {
-              const participants = await client.getParticipants(dialog.entity, { limit: 100 });
+              const participants = await client.getParticipants(dialog.entity!, { limit: 50 }); // Reduced limit
               participants.forEach((user: any) => {
-                accessibleUsers.add(user.id.toString());
-                if (user.username) {
-                  accessibleUsers.add(`@${user.username}`);
+                if (user.id) {
+                  accessibleUsers.add(user.id.toString());
+                  if (user.username) {
+                    accessibleUsers.add(`@${user.username}`);
+                  }
+                  groupUsers++;
                 }
               });
             } catch (error) {
@@ -346,11 +403,15 @@ export class TelegramService {
             }
           }
         }
+        console.log(`Found ${groupUsers} users from groups`);
       } catch (error) {
         console.log("Could not get group participants:", error);
       }
       
-      return Array.from(accessibleUsers);
+      const result = Array.from(accessibleUsers);
+      console.log(`Total accessible contacts collected: ${result.length}`);
+      return result;
+      
     } catch (error) {
       console.error("Error getting accessible contacts:", error);
       return [];

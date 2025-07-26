@@ -14,21 +14,43 @@ export function ContactHelper() {
   const getContactsMutation = useMutation({
     mutationFn: async () => {
       const response = await apiRequest("GET", "/api/telegram/contacts/1");
+      
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || "Failed to fetch contacts");
+      }
+      
       return response.json();
     },
     onSuccess: (data) => {
       setContacts(data.contacts || []);
       toast({
-        title: "Contacts retrieved",
+        title: "Contacts retrieved successfully",
         description: `Found ${data.count || 0} accessible users`,
       });
     },
     onError: (error: any) => {
-      toast({
-        title: "Failed to get contacts",
-        description: error.message,
-        variant: "destructive",
-      });
+      console.error("Contact fetch error:", error);
+      
+      if (error.message?.includes('Rate limited')) {
+        toast({
+          title: "Rate Limited",
+          description: "Telegram has temporarily limited requests. Please wait a few minutes and try again.",
+          variant: "destructive",
+        });
+      } else if (error.message?.includes('disconnected')) {
+        toast({
+          title: "Connection Issue",
+          description: "Telegram account may be disconnected. Try reconnecting your account.",
+          variant: "destructive",
+        });
+      } else {
+        toast({
+          title: "Failed to get contacts",
+          description: error.message || "Unknown error occurred",
+          variant: "destructive",
+        });
+      }
     },
   });
 
@@ -68,8 +90,8 @@ export function ContactHelper() {
             users from shared groups, and users you've messaged before.
             <div className="mt-2 p-2 bg-blue-50 rounded border border-blue-200">
               <p className="text-sm text-blue-800">
-                <strong>Pro Tip:</strong> For highest success rates, manually collect usernames (@username) 
-                from channel member lists instead of using numeric IDs.
+                <strong>Note:</strong> If you're rate limited, manually collect usernames (@username) 
+                from channel member lists for best results. This avoids API limits.
               </p>
             </div>
           </AlertDescription>
@@ -119,6 +141,21 @@ export function ContactHelper() {
             </p>
           </div>
         )}
+
+        {/* Manual collection guide if contacts helper fails */}
+        <div className="p-3 bg-yellow-50 rounded-lg border border-yellow-200 text-sm">
+          <p className="font-medium text-yellow-800 mb-2">Alternative: Manual Collection</p>
+          <p className="text-yellow-700 mb-2">
+            If the automatic contact helper is rate limited, you can manually collect usernames:
+          </p>
+          <ol className="text-yellow-700 space-y-1 ml-4 list-decimal">
+            <li>Go to any Telegram channel</li>
+            <li>Click on member count to view members</li>
+            <li>Copy usernames that start with @ (like @john_doe)</li>
+            <li>Create a text file with one username per line</li>
+            <li>Upload the file using the member upload tool above</li>
+          </ol>
+        </div>
       </CardContent>
     </Card>
   );
