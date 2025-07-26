@@ -259,7 +259,7 @@ export class TelegramService {
                 const users = await client.invoke(new Api.users.GetUsers({
                   id: [new Api.InputUser({
                     userId: userId,
-                    accessHash: "0",
+                    accessHash: 0n,
                   })]
                 }));
                 return Array.isArray(users) ? users[0] : users;
@@ -319,7 +319,7 @@ export class TelegramService {
           try {
             const inputPeer = new Api.InputPeerUser({
               userId: userId,
-              accessHash: "0",
+              accessHash: 0n,
             });
             
             const users = await client.invoke(new Api.users.GetUsers({
@@ -376,7 +376,7 @@ export class TelegramService {
         }
         
         return await client.invoke(new Api.messages.AddChatUser({
-          chatId: chatId.toString(),
+          chatId: chatId,
           userId: userEntity,
           fwdLimit: 100,
         }));
@@ -429,110 +429,113 @@ export class TelegramService {
   }
 
   async getChannelMembers(client: TelegramClient, channelId: string, limit: number = 1000): Promise<string[]> {
+    const memberUsernames = new Set<string>();
+    
     try {
-      // Ensure client is connected
-      if (!client.connected) {
-        console.log("Client not connected, attempting to connect...");
-        await client.connect();
-        await new Promise(resolve => setTimeout(resolve, 2000));
+      // Ensure client is connected with retry logic
+      for (let attempt = 0; attempt < 3; attempt++) {
+        if (!client.connected) {
+          console.log(`Client connection attempt ${attempt + 1}...`);
+          try {
+            await client.connect();
+            await new Promise(resolve => setTimeout(resolve, 2000));
+            break;
+          } catch (connectError) {
+            console.log(`Connection attempt ${attempt + 1} failed:`, connectError);
+            if (attempt === 2) throw new Error("Failed to connect to Telegram after 3 attempts");
+            await new Promise(resolve => setTimeout(resolve, 5000));
+          }
+        } else {
+          break;
+        }
       }
 
-      const memberUsernames = new Set<string>();
-      const { Api } = await import("telegram/tl");
-      
       console.log(`Getting members from channel ${channelId}...`);
       
       try {
         const channel = await client.getEntity(channelId);
-        
-        // Try multiple approaches to get more comprehensive member list
         let allParticipants: any[] = [];
         
-        // Method 1: Standard getParticipants with increased limit
+        // Method 1: Standard getParticipants (most reliable)
         try {
-          const participants = await client.getParticipants(channel, { limit });
+          const participants = await client.getParticipants(channel, { limit: Math.min(limit, 1000) });
           allParticipants = [...participants];
           console.log(`Method 1: Found ${participants.length} participants`);
-        } catch (error) {
-          console.log("Method 1 failed, trying alternative approaches...");
+        } catch (error: any) {
+          console.log("Method 1 failed:", error.message);
+          
+          // If permission error, provide helpful message
+          if (error.message?.includes('ChatAdminRequiredError') || error.message?.includes('CHAT_ADMIN_REQUIRED')) {
+            throw new Error("You need admin permissions to view members of this channel");
+          }
+          
+          if (error.message?.includes('ChannelPrivateError') || error.message?.includes('CHANNEL_PRIVATE')) {
+            throw new Error("This channel is private and members cannot be accessed");
+          }
         }
         
-        // Method 2: Get participants in chunks to avoid limits
-        if (allParticipants.length === 0) {
+        // Method 2: Try chunked approach if first method failed or returned few results
+        if (allParticipants.length === 0 || (allParticipants.length < 100 && limit > 100)) {
           try {
-            const chunks = Math.ceil(limit / 200);
+            console.log("Trying chunked participant retrieval...");
+            const chunks = Math.ceil(Math.min(limit, 1000) / 200);
+            const chunkParticipants: any[] = [];
+            
             for (let i = 0; i < chunks; i++) {
               const offset = i * 200;
               const chunkLimit = Math.min(200, limit - offset);
-              const participants = await client.getParticipants(channel, { 
-                limit: chunkLimit, 
-                offset 
-              });
-              allParticipants.push(...participants);
               
-              if (participants.length < chunkLimit) break; // No more users
-              
-              // Small delay between chunks to avoid rate limiting
-              await new Promise(resolve => setTimeout(resolve, 1000));
+              try {
+                const participants = await client.getParticipants(channel, { 
+                  limit: chunkLimit, 
+                  offset 
+                });
+                chunkParticipants.push(...participants);
+                
+                if (participants.length < chunkLimit) break;
+                
+                // Rate limit protection
+                await new Promise(resolve => setTimeout(resolve, 1500));
+              } catch (chunkError: any) {
+                console.log(`Chunk ${i + 1} failed:`, chunkError.message);
+                break;
+              }
             }
-            console.log(`Method 2: Found ${allParticipants.length} participants in chunks`);
-          } catch (error) {
-            console.log("Method 2 failed, trying direct API approach...");
-          }
-        }
-        
-        // Method 3: Direct API call with GetParticipants
-        if (allParticipants.length === 0) {
-          try {
-            const result = await client.invoke(new Api.channels.GetParticipants({
-              channel: channel,
-              filter: new Api.ChannelParticipantsRecent(),
-              offset: 0,
-              limit: limit,
-              hash: "0",
-            }));
             
-            if ('users' in result) {
-              allParticipants = result.users;
-              console.log(`Method 3: Found ${allParticipants.length} participants via API`);
+            if (chunkParticipants.length > allParticipants.length) {
+              allParticipants = chunkParticipants;
+              console.log(`Method 2: Found ${allParticipants.length} participants in chunks`);
             }
-          } catch (error) {
-            console.log("Method 3 failed:", error);
+          } catch (error: any) {
+            console.log("Method 2 failed:", error.message);
           }
         }
         
         if (allParticipants.length === 0) {
-          throw new Error("Unable to retrieve channel members with any method");
+          throw new Error("No members found. This might be due to channel privacy settings or insufficient permissions.");
         }
         
         console.log(`Total participants found: ${allParticipants.length}`);
         
-        // Count users with usernames vs without
+        // Extract member identifiers with validation
         let usersWithUsernames = 0;
         let usersWithoutUsernames = 0;
         
         allParticipants.forEach((user: any) => {
-          if (user.username) {
-            usersWithUsernames++;
-          } else {
-            usersWithoutUsernames++;
-          }
-        });
-        
-        console.log(`Users with usernames: ${usersWithUsernames}, Users without usernames: ${usersWithoutUsernames}`);
-        
-        // Extract member identifiers
-        allParticipants.forEach((user: any) => {
-          if (user.id) {
-            // Prefer username format for better success rates, fallback to numeric ID
+          if (user && user.id) {
+            // Count users by type
             if (user.username) {
+              usersWithUsernames++;
               memberUsernames.add(`@${user.username}`);
             } else {
+              usersWithoutUsernames++;
               // Only add numeric ID if no username exists
               memberUsernames.add(user.id.toString());
             }
           }
         });
+        
+        console.log(`Users with usernames: ${usersWithUsernames}, Users without usernames: ${usersWithoutUsernames}`);
         
         const result = Array.from(memberUsernames);
         console.log(`Extracted ${result.length} unique member identifiers from channel`);

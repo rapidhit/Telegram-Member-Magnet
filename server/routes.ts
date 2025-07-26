@@ -518,6 +518,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       } catch (error: any) {
         console.error("Error getting channel members:", error);
         
+        // Handle specific Telegram API errors with user-friendly messages
         if (error.message?.includes('FloodWaitError') || error.message?.includes('FLOOD')) {
           const waitMatch = error.message.match(/(\d+) seconds/);
           const waitTime = waitMatch ? parseInt(waitMatch[1]) : 600;
@@ -529,9 +530,38 @@ export async function registerRoutes(app: Express): Promise<Server> {
           });
         }
         
+        if (error.message?.includes('ChatAdminRequiredError') || error.message?.includes('CHAT_ADMIN_REQUIRED')) {
+          return res.status(403).json({ 
+            message: "You need admin permissions to view members of this channel",
+            error: "INSUFFICIENT_PERMISSIONS"
+          });
+        }
+        
+        if (error.message?.includes('ChannelPrivateError') || error.message?.includes('CHANNEL_PRIVATE')) {
+          return res.status(403).json({ 
+            message: "This channel is private and members cannot be accessed",
+            error: "PRIVATE_CHANNEL"
+          });
+        }
+        
+        if (error.message?.includes('Failed to connect')) {
+          return res.status(503).json({ 
+            message: "Unable to connect to Telegram. Please check your internet connection and try again.",
+            error: "CONNECTION_FAILED"
+          });
+        }
+        
+        if (error.message?.includes('No members found')) {
+          return res.status(404).json({ 
+            message: "No members found in this channel. This might be due to channel privacy settings.",
+            error: "NO_MEMBERS_FOUND"
+          });
+        }
+        
+        // Generic error response
         res.status(500).json({ 
-          message: error.message || "Failed to get channel members",
-          error: error.message || "Unknown error"
+          message: error.message || "Failed to extract channel members. Please check your permissions and try again.",
+          error: error.message || "EXTRACTION_FAILED"
         });
       }
     } catch (error) {
