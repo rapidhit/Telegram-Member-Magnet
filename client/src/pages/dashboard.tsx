@@ -12,7 +12,7 @@ import { RecentActivity } from "@/components/recent-activity";
 import { HelpSupport } from "@/components/help-support";
 import { ContactHelper } from "@/components/contact-helper";
 import { TelegramConnection } from "@/components/telegram-connection";
-import { Send, Settings, Wifi } from "lucide-react";
+import { Send, Wifi } from "lucide-react";
 
 export default function Dashboard() {
   const [currentStep, setCurrentStep] = useState(1); // Start at step 1 for account connection
@@ -65,14 +65,11 @@ export default function Dashboard() {
               </div>
             </div>
             
-            <div className="flex items-center space-x-3">
+            <div className="flex items-center">
               <div className="flex items-center space-x-2 px-3 py-1 bg-green-50 rounded-full border border-green-200">
                 <div className="w-2 h-2 bg-[hsl(134,61%,54%)] rounded-full"></div>
                 <span className="text-sm font-medium text-green-700">Connected</span>
               </div>
-              <Button variant="ghost" size="icon">
-                <Settings className="text-gray-500" size={18} />
-              </Button>
             </div>
           </div>
         </div>
