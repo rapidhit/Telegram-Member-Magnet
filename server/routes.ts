@@ -308,6 +308,110 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Pause job
+  app.post("/api/jobs/:jobId/pause", async (req, res) => {
+    try {
+      const jobId = parseInt(req.params.jobId);
+      const job = await storage.getMemberAdditionJob(jobId);
+      
+      if (!job) {
+        return res.status(404).json({ message: "Job not found" });
+      }
+
+      if (job.status !== "running") {
+        return res.status(400).json({ message: "Job is not running" });
+      }
+
+      await storage.updateMemberAdditionJob(jobId, {
+        status: "paused"
+      });
+
+      await storage.createActivityLog({
+        telegramAccountId: job.telegramAccountId,
+        action: "job_paused",
+        details: `Paused member addition job ${jobId}`,
+        status: "success",
+      });
+
+      res.json({ message: "Job paused successfully" });
+    } catch (error) {
+      console.error("Error pausing job:", error);
+      res.status(500).json({ message: "Failed to pause job" });
+    }
+  });
+
+  // Resume job
+  app.post("/api/jobs/:jobId/resume", async (req, res) => {
+    try {
+      const jobId = parseInt(req.params.jobId);
+      const job = await storage.getMemberAdditionJob(jobId);
+      
+      if (!job) {
+        return res.status(404).json({ message: "Job not found" });
+      }
+
+      if (job.status !== "paused") {
+        return res.status(400).json({ message: "Job is not paused" });
+      }
+
+      await storage.updateMemberAdditionJob(jobId, {
+        status: "running"
+      });
+
+      // Get the telegram account and restart processing
+      const telegramAccount = await storage.getTelegramAccount(job.telegramAccountId);
+      if (telegramAccount) {
+        // Resume processing in the background
+        processMemberAdditionJob(job, telegramAccount);
+      }
+
+      await storage.createActivityLog({
+        telegramAccountId: job.telegramAccountId,
+        action: "job_resumed",
+        details: `Resumed member addition job ${jobId}`,
+        status: "success",
+      });
+
+      res.json({ message: "Job resumed successfully" });
+    } catch (error) {
+      console.error("Error resuming job:", error);
+      res.status(500).json({ message: "Failed to resume job" });
+    }
+  });
+
+  // Stop job
+  app.post("/api/jobs/:jobId/stop", async (req, res) => {
+    try {
+      const jobId = parseInt(req.params.jobId);
+      const job = await storage.getMemberAdditionJob(jobId);
+      
+      if (!job) {
+        return res.status(404).json({ message: "Job not found" });
+      }
+
+      if (job.status === "completed" || job.status === "cancelled") {
+        return res.status(400).json({ message: "Job is already finished" });
+      }
+
+      await storage.updateMemberAdditionJob(jobId, {
+        status: "cancelled",
+        completedAt: new Date()
+      });
+
+      await storage.createActivityLog({
+        telegramAccountId: job.telegramAccountId,
+        action: "job_stopped",
+        details: `Stopped member addition job ${jobId}`,
+        status: "success",
+      });
+
+      res.json({ message: "Job stopped successfully" });
+    } catch (error) {
+      console.error("Error stopping job:", error);
+      res.status(500).json({ message: "Failed to stop job" });
+    }
+  });
+
   // Get activity logs
   app.get("/api/activity/:telegramAccountId", async (req, res) => {
     try {
@@ -556,6 +660,11 @@ async function processMemberAdditionJob(job: any, telegramAccount: any) {
       const currentJob = await storage.getMemberAdditionJob(job.id);
       if (currentJob?.status === "paused") {
         console.log(`Job ${job.id} paused at ${i}/${userIds.length}`);
+        break;
+      }
+      
+      if (currentJob?.status === "cancelled") {
+        console.log(`Job ${job.id} cancelled at ${i}/${userIds.length}`);
         break;
       }
 

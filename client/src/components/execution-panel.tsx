@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import { Play, Eye, Pause } from "lucide-react";
+import { Play, Eye, Pause, Square, RotateCcw } from "lucide-react";
 
 interface ExecutionPanelProps {
   selectedChannel: any;
@@ -70,6 +70,67 @@ export function ExecutionPanel({
     onError: (error: any) => {
       toast({
         title: "Failed to start job",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  const pauseJobMutation = useMutation({
+    mutationFn: async (jobId: number) => {
+      const response = await apiRequest("POST", `/api/jobs/${jobId}/pause`);
+      return response.json();
+    },
+    onSuccess: () => {
+      toast({
+        title: "Job paused",
+        description: "Member addition process has been paused",
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Failed to pause job",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  const resumeJobMutation = useMutation({
+    mutationFn: async (jobId: number) => {
+      const response = await apiRequest("POST", `/api/jobs/${jobId}/resume`);
+      return response.json();
+    },
+    onSuccess: () => {
+      toast({
+        title: "Job resumed",  
+        description: "Member addition process has been resumed",
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Failed to resume job",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  const stopJobMutation = useMutation({
+    mutationFn: async (jobId: number) => {
+      const response = await apiRequest("POST", `/api/jobs/${jobId}/stop`);
+      return response.json();
+    },
+    onSuccess: () => {
+      toast({
+        title: "Job stopped",
+        description: "Member addition process has been terminated",
+      });
+      setActiveJobId(null); // Clear active job
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Failed to stop job",
         description: error.message,
         variant: "destructive",
       });
@@ -152,15 +213,60 @@ export function ExecutionPanel({
             <div className="flex items-center justify-between">
               <h3 className="font-medium text-gray-900">Progress</h3>
               <div className="flex items-center space-x-2">
-                <Badge variant={currentJob.status === "running" ? "default" : "secondary"}>
+                <Badge variant={currentJob.status === "running" ? "default" : 
+                               currentJob.status === "paused" ? "outline" :
+                               currentJob.status === "cancelled" ? "destructive" : "secondary"}>
                   {currentJob.status}
                 </Badge>
-                {currentJob.status === "running" && (
-                  <Button variant="outline" size="sm">
-                    <Pause className="w-4 h-4 mr-1" />
-                    Pause
-                  </Button>
-                )}
+                
+                {/* Job Control Buttons */}
+                <div className="flex space-x-1">
+                  {currentJob.status === "running" && (
+                    <>
+                      <Button 
+                        variant="outline" 
+                        size="sm"
+                        onClick={() => pauseJobMutation.mutate(currentJob.id)}
+                        disabled={pauseJobMutation.isPending}
+                      >
+                        <Pause className="w-4 h-4 mr-1" />
+                        Pause
+                      </Button>
+                      <Button 
+                        variant="destructive" 
+                        size="sm"
+                        onClick={() => stopJobMutation.mutate(currentJob.id)}
+                        disabled={stopJobMutation.isPending}
+                      >
+                        <Square className="w-4 h-4 mr-1" />
+                        Stop
+                      </Button>
+                    </>
+                  )}
+                  
+                  {currentJob.status === "paused" && (
+                    <>
+                      <Button 
+                        variant="outline" 
+                        size="sm"
+                        onClick={() => resumeJobMutation.mutate(currentJob.id)}
+                        disabled={resumeJobMutation.isPending}
+                      >
+                        <RotateCcw className="w-4 h-4 mr-1" />
+                        Resume
+                      </Button>
+                      <Button 
+                        variant="destructive" 
+                        size="sm"
+                        onClick={() => stopJobMutation.mutate(currentJob.id)}
+                        disabled={stopJobMutation.isPending}
+                      >
+                        <Square className="w-4 h-4 mr-1" />
+                        Stop
+                      </Button>
+                    </>
+                  )}
+                </div>
               </div>
             </div>
 
