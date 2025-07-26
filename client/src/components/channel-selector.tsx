@@ -28,8 +28,12 @@ export function ChannelSelector({ selectedChannel, onChannelSelect }: ChannelSel
     enabled: !!telegramAccountId,
   });
 
-  const handleRefresh = () => {
-    refetch();
+  const handleRefresh = async () => {
+    // Force refresh by calling the API with refresh=true parameter
+    const response = await fetch(`/api/telegram/channels/${telegramAccountId}?refresh=true`);
+    if (response.ok) {
+      refetch();
+    }
   };
 
   return (

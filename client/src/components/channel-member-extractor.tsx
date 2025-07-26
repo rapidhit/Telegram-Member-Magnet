@@ -9,6 +9,7 @@ import { apiRequest } from "@/lib/queryClient";
 import { Download, Users, RefreshCw } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { cn } from "@/lib/utils";
 
 export function ChannelMemberExtractor() {
   const [selectedChannel, setSelectedChannel] = useState<string>("");
@@ -163,7 +164,7 @@ export function ChannelMemberExtractor() {
             variant="outline"
             className="flex-1"
           >
-            <RefreshCw className={`w-4 h-4 mr-2 ${extractMembersMutation.isPending ? 'animate-spin' : ''}`} />
+            <RefreshCw className={cn("w-4 h-4 mr-2", extractMembersMutation.isPending && "animate-spin")} />
             Extract Members
           </Button>
           

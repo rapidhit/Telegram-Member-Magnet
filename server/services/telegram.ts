@@ -1,4 +1,4 @@
-import { TelegramClient, StringSession, NewMessage } from "../utils/telegramImports";
+import { TelegramClient, StringSession, NewMessage, Api } from "../utils/telegramImports";
 import type { TelegramAccount, Channel } from "@shared/schema";
 
 export interface TelegramChannel {
@@ -11,6 +11,8 @@ export interface TelegramChannel {
 
 export class TelegramService {
   private clients: Map<number, TelegramClient> = new Map();
+  private channelCache: Map<number, { channels: TelegramChannel[], lastUpdated: number }> = new Map();
+  private readonly CACHE_DURATION = 5 * 60 * 1000; // 5 minutes cache
 
   async sendVerificationCode(
     apiId: string,
@@ -83,50 +85,84 @@ export class TelegramService {
     return client;
   }
 
-  async getAdminChannels(client: TelegramClient): Promise<TelegramChannel[]> {
-    const dialogs = await client.getDialogs();
-    const adminChannels: TelegramChannel[] = [];
-
-    for (const dialog of dialogs) {
-      if (dialog.isChannel && dialog.entity) {
-        try {
-          const entity = dialog.entity;
-          const channelId = entity.id.toString();
-          
-          // Check if user is admin
-          try {
-            const participants = await client.getParticipants(entity, { 
-              filter: { _: "channelParticipantsAdmins" } as any 
-            });
-            const me = await client.getMe();
-            const isAdmin = participants.some((p: any) => p.id.equals(me.id));
-
-            if (isAdmin) {
-              adminChannels.push({
-                id: channelId,
-                title: (entity as any).title || "Unknown Channel",
-                username: (entity as any).username,
-                memberCount: (entity as any).participantsCount || 0,
-                isAdmin: true,
-              });
-            }
-          } catch (adminCheckError) {
-            // If admin check fails, still include channel but mark as potentially non-admin
-            adminChannels.push({
-              id: channelId,
-              title: (entity as any).title || "Unknown Channel",
-              username: (entity as any).username,
-              memberCount: (entity as any).participantsCount || 0,
-              isAdmin: false,
-            });
-          }
-        } catch (error) {
-          console.error(`Error checking channel ${dialog.entity?.id}:`, error);
-        }
+  async getAdminChannels(client: TelegramClient, telegramAccountId?: number): Promise<TelegramChannel[]> {
+    // Check cache first if telegramAccountId is provided
+    if (telegramAccountId) {
+      const cached = this.channelCache.get(telegramAccountId);
+      if (cached && Date.now() - cached.lastUpdated < this.CACHE_DURATION) {
+        console.log(`Returning ${cached.channels.length} cached channels for account ${telegramAccountId}`);
+        return cached.channels;
       }
     }
 
+    console.log("Loading channels from Telegram API...");
+    const dialogs = await client.getDialogs();
+    const adminChannels: TelegramChannel[] = [];
+    const me = await client.getMe();
+
+    console.log(`Processing ${dialogs.length} dialogs for accessible channels...`);
+
+    // Filter to channels and supergroups only - no need for API calls yet
+    const channelDialogs = dialogs.filter(d => d.isChannel && d.entity);
+    
+    for (const dialog of channelDialogs) {
+      try {
+        const entity = dialog.entity;
+        if (!entity) continue;
+        
+        const channelId = entity.id.toString();
+        
+        // Use available entity properties without making additional API calls
+        let isAdmin = false;
+        
+        // Check basic admin indicators from entity properties
+        if ((entity as any).adminRights || 
+            (entity as any).creatorId?.equals?.(me.id) ||
+            (entity as any).creator === true) {
+          isAdmin = true;
+        }
+
+        // Include all channels user is part of - they can potentially extract members
+        // Even without admin rights, users can still see channel members in many cases
+        adminChannels.push({
+          id: channelId,
+          title: (entity as any).title || "Unknown Channel",
+          username: (entity as any).username,
+          memberCount: (entity as any).participantsCount || 0,
+          isAdmin,
+        });
+        
+      } catch (error) {
+        console.error(`Error processing channel:`, error);
+      }
+    }
+
+    console.log(`Found ${adminChannels.length} accessible channels out of ${channelDialogs.length} total channels`);
+    
+    // Cache the results if telegramAccountId is provided
+    if (telegramAccountId) {
+      this.channelCache.set(telegramAccountId, {
+        channels: adminChannels,
+        lastUpdated: Date.now()
+      });
+    }
+
     return adminChannels;
+  }
+
+  // Method to clear cache when needed
+  clearChannelCache(telegramAccountId?: number): void {
+    if (telegramAccountId) {
+      this.channelCache.delete(telegramAccountId);
+    } else {
+      this.channelCache.clear();
+    }
+  }
+
+  // Method to check if channels are cached
+  isCached(telegramAccountId: number): boolean {
+    const cached = this.channelCache.get(telegramAccountId);
+    return cached !== undefined && Date.now() - cached.lastUpdated < this.CACHE_DURATION;
   }
 
   async addMembersToChannel(

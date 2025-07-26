@@ -125,6 +125,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/telegram/channels/:telegramAccountId", async (req, res) => {
     try {
       const telegramAccountId = parseInt(req.params.telegramAccountId);
+      const forceRefresh = req.query.refresh === 'true';
+      
       const telegramAccount = await storage.getTelegramAccount(telegramAccountId);
       
       if (!telegramAccount) {
@@ -136,6 +138,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.json([]);
       }
 
+      // Clear cache if refresh is requested
+      if (forceRefresh) {
+        telegramService.clearChannelCache(telegramAccountId);
+      }
+
       const client = await telegramService.getClient(
         telegramAccountId,
         telegramAccount.sessionString,
@@ -143,29 +150,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
         telegramAccount.apiHash
       );
 
-      const adminChannels = await telegramService.getAdminChannels(client);
+      const adminChannels = await telegramService.getAdminChannels(client, telegramAccountId);
 
-      // Update channels in storage
-      const existingChannels = await storage.getChannelsByTelegramAccountId(telegramAccountId);
-      
-      for (const channel of adminChannels) {
-        const existing = existingChannels.find(c => c.channelId === channel.id);
-        if (existing) {
-          await storage.updateChannel(existing.id, {
-            title: channel.title,
-            username: channel.username,
-            memberCount: channel.memberCount,
-            isAdmin: channel.isAdmin,
-          });
-        } else {
-          await storage.createChannel({
-            telegramAccountId,
-            channelId: channel.id,
-            title: channel.title,
-            username: channel.username,
-            memberCount: channel.memberCount,
-            isAdmin: channel.isAdmin,
-          });
+      // Update channels in storage only if data was refreshed (not from cache)
+      if (forceRefresh || !telegramService.isCached(telegramAccountId)) {
+        const existingChannels = await storage.getChannelsByTelegramAccountId(telegramAccountId);
+        
+        for (const channel of adminChannels) {
+          const existing = existingChannels.find(c => c.channelId === channel.id);
+          if (existing) {
+            await storage.updateChannel(existing.id, {
+              title: channel.title,
+              username: channel.username,
+              memberCount: channel.memberCount,
+              isAdmin: channel.isAdmin,
+            });
+          } else {
+            await storage.createChannel({
+              telegramAccountId,
+              channelId: channel.id,
+              title: channel.title,
+              username: channel.username,
+              memberCount: channel.memberCount,
+              isAdmin: channel.isAdmin,
+            });
+          }
         }
       }
 
