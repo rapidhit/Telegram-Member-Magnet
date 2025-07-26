@@ -143,12 +143,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         telegramAccount.apiHash
       );
 
-      const adminChannels = await telegramService.getAdminChannels(client);
+      const allChannels = await telegramService.getAllChannels(client);
 
       // Update channels in storage
       const existingChannels = await storage.getChannelsByTelegramAccountId(telegramAccountId);
       
-      for (const channel of adminChannels) {
+      for (const channel of allChannels) {
         const existing = existingChannels.find(c => c.channelId === channel.id);
         if (existing) {
           await storage.updateChannel(existing.id, {
@@ -169,10 +169,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
 
-      res.json(adminChannels);
+      res.json(allChannels);
     } catch (error) {
-      console.error("Error getting admin channels:", error);
-      res.status(500).json({ message: "Failed to get admin channels" });
+      console.error("Error getting channels:", error);
+      res.status(500).json({ message: "Failed to get channels" });
     }
   });
 

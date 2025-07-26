@@ -17,12 +17,12 @@ export function HelpSupport() {
     {
       icon: <LifeBuoy className="h-4 w-4 text-[hsl(207,90%,54%)]" />,
       label: "Contact Support",
-      onClick: () => {},
+      onClick: () => window.open("https://t.me/tele_magnet_bot", "_blank"),
     },
     {
       icon: <Bug className="h-4 w-4 text-[hsl(207,90%,54%)]" />,
       label: "Report Issue",
-      onClick: () => {},
+      onClick: () => window.open("https://t.me/tele_magnet_bot", "_blank"),
     },
   ];
 
