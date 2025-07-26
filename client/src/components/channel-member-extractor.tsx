@@ -12,7 +12,7 @@ import { Label } from "@/components/ui/label";
 
 export function ChannelMemberExtractor() {
   const [selectedChannel, setSelectedChannel] = useState<string>("");
-  const [extractLimit, setExtractLimit] = useState<number>(200);
+  const [extractLimit, setExtractLimit] = useState<number>(500);
   const [extractedMembers, setExtractedMembers] = useState<string[]>([]);
   const { toast } = useToast();
 

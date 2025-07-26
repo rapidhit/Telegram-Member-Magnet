@@ -221,10 +221,7 @@ export class TelegramService {
                 // Try via InputUser for numeric IDs
                 const { Api } = await import("telegram/tl");
                 const users = await client.invoke(new Api.users.GetUsers({
-                  id: [new Api.InputUser({
-                    userId: userId,
-                    accessHash: "0",
-                  })]
+                  id: [userId]
                 }));
                 return Array.isArray(users) ? users[0] : users;
               } catch (error3) {
@@ -281,13 +278,8 @@ export class TelegramService {
       async () => {
         if (/^\d+$/.test(userId)) {
           try {
-            const inputPeer = new Api.InputPeerUser({
-              userId: userId,
-              accessHash: "0",
-            });
-            
             const users = await client.invoke(new Api.users.GetUsers({
-              id: [inputPeer]
+              id: [userId]
             }));
             return Array.isArray(users) ? users[0] : users;
           } catch (error) {
@@ -340,7 +332,7 @@ export class TelegramService {
         }
         
         return await client.invoke(new Api.messages.AddChatUser({
-          chatId: chatId.toString(),
+          chatId: parseInt(chatId.toString()),
           userId: userEntity,
           fwdLimit: 100,
         }));
@@ -392,7 +384,7 @@ export class TelegramService {
     };
   }
 
-  async getChannelMembers(client: TelegramClient, channelId: string, limit: number = 1000): Promise<string[]> {
+  async getChannelMembers(client: TelegramClient, channelId: string, limit: number = 500): Promise<string[]> {
     try {
       // Ensure client is connected
       if (!client.connected) {
@@ -402,80 +394,24 @@ export class TelegramService {
       }
 
       const memberUsernames = new Set<string>();
-      const { Api } = await import("telegram/tl");
       
       console.log(`Getting members from channel ${channelId}...`);
       
       try {
         const channel = await client.getEntity(channelId);
         
-        // Try multiple approaches to get more comprehensive member list
-        let allParticipants: any[] = [];
+        // Use simple, reliable approach that works with most channels
+        const participants = await client.getParticipants(channel, { 
+          limit: Math.min(limit, 200) // Start with smaller, safer limit
+        });
         
-        // Method 1: Standard getParticipants with increased limit
-        try {
-          const participants = await client.getParticipants(channel, { limit });
-          allParticipants = [...participants];
-          console.log(`Method 1: Found ${participants.length} participants`);
-        } catch (error) {
-          console.log("Method 1 failed, trying alternative approaches...");
-        }
-        
-        // Method 2: Get participants in chunks to avoid limits
-        if (allParticipants.length === 0) {
-          try {
-            const chunks = Math.ceil(limit / 200);
-            for (let i = 0; i < chunks; i++) {
-              const offset = i * 200;
-              const chunkLimit = Math.min(200, limit - offset);
-              const participants = await client.getParticipants(channel, { 
-                limit: chunkLimit, 
-                offset 
-              });
-              allParticipants.push(...participants);
-              
-              if (participants.length < chunkLimit) break; // No more users
-              
-              // Small delay between chunks to avoid rate limiting
-              await new Promise(resolve => setTimeout(resolve, 1000));
-            }
-            console.log(`Method 2: Found ${allParticipants.length} participants in chunks`);
-          } catch (error) {
-            console.log("Method 2 failed, trying direct API approach...");
-          }
-        }
-        
-        // Method 3: Direct API call with GetParticipants
-        if (allParticipants.length === 0) {
-          try {
-            const result = await client.invoke(new Api.channels.GetParticipants({
-              channel: channel,
-              filter: new Api.ChannelParticipantsRecent(),
-              offset: 0,
-              limit: limit,
-              hash: "0",
-            }));
-            
-            if ('users' in result) {
-              allParticipants = result.users;
-              console.log(`Method 3: Found ${allParticipants.length} participants via API`);
-            }
-          } catch (error) {
-            console.log("Method 3 failed:", error);
-          }
-        }
-        
-        if (allParticipants.length === 0) {
-          throw new Error("Unable to retrieve channel members with any method");
-        }
-        
-        console.log(`Total participants found: ${allParticipants.length}`);
+        console.log(`Found ${participants.length} participants in channel`);
         
         // Count users with usernames vs without
         let usersWithUsernames = 0;
         let usersWithoutUsernames = 0;
         
-        allParticipants.forEach((user: any) => {
+        participants.forEach((user: any) => {
           if (user.username) {
             usersWithUsernames++;
           } else {
@@ -486,7 +422,7 @@ export class TelegramService {
         console.log(`Users with usernames: ${usersWithUsernames}, Users without usernames: ${usersWithoutUsernames}`);
         
         // Extract member identifiers
-        allParticipants.forEach((user: any) => {
+        participants.forEach((user: any) => {
           if (user.id) {
             // Prefer username format for better success rates, fallback to numeric ID
             if (user.username) {
@@ -502,9 +438,19 @@ export class TelegramService {
         console.log(`Extracted ${result.length} unique member identifiers from channel`);
         return result;
         
-      } catch (error) {
+      } catch (error: any) {
         console.error("Error getting channel participants:", error);
-        throw new Error(`Cannot access members of this channel. You may not have sufficient permissions.`);
+        
+        // Handle specific error types with helpful messages
+        if (error.message?.includes('CHAT_ADMIN_REQUIRED')) {
+          throw new Error(`Admin permissions required to view members of this channel. You need to be an admin to extract members from this channel.`);
+        } else if (error.message?.includes('CHANNEL_PRIVATE')) {
+          throw new Error(`This is a private channel. You may not have access to view its members.`);
+        } else if (error.message?.includes('CHAT_ID_INVALID')) {
+          throw new Error(`Invalid channel ID. Please make sure you selected a valid channel.`);
+        } else {
+          throw new Error(`Cannot access members of this channel. You may not have sufficient permissions or the channel may be restricted.`);
+        }
       }
       
     } catch (error) {
@@ -531,7 +477,7 @@ export class TelegramService {
       try {
         console.log("Getting direct contacts...");
         const contacts = await client.invoke(new Api.contacts.GetContacts({
-          hash: 0n
+          hash: 0
         }));
         
         if ('users' in contacts && Array.isArray(contacts.users)) {
