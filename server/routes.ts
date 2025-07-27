@@ -731,7 +731,7 @@ async function processMemberAdditionJob(job: any, telegramAccount: any) {
     const userIds = job.memberList as string[];
     const rateLimit = job.rateLimit || 4;
     const batchDelay = (job.batchDelay || 120) * 1000; // Convert to milliseconds
-    const intervalDelay = (60 / rateLimit) * 1000; // Delay between individual additions
+    const intervalDelay = Math.max((60 / rateLimit) * 1000, 8000); // Minimum 8 seconds to avoid rate limits
 
     let addedCount = job.addedMembers || 0;
     let failedCount = job.failedMembers || 0;
@@ -762,15 +762,37 @@ async function processMemberAdditionJob(job: any, telegramAccount: any) {
           }
         );
         
+        // ONLY count if ACTUALLY successful
         if (result.successful > 0) {
           addedCount++;
-          console.log(`✓ Successfully added user ${userId} (${addedCount} total)`);
+          console.log(`✓ VERIFIED: User ${userId} actually added to channel (${addedCount} total real additions)`);
         } else {
           failedCount++;
-          console.log(`✗ Failed to add user ${userId} (${failedCount} total failures)`);
+          console.log(`✗ CONFIRMED: User ${userId} was NOT added (${failedCount} total failures)`);
         }
-      } catch (error) {
+      } catch (error: any) {
         console.error(`Failed to add user ${userId}:`, error);
+        
+        // Handle severe rate limit errors by stopping the job
+        if (error.message?.includes('Severe rate limit')) {
+          console.log(`🛑 STOPPING JOB due to severe rate limits`);
+          await storage.updateMemberAdditionJob(job.id, {
+            status: "paused",
+            addedMembers: addedCount,
+            failedMembers: failedCount,
+          });
+          
+          await storage.createActivityLog({
+            telegramAccountId: job.telegramAccountId,
+            jobId: job.id,
+            action: "job_rate_limited",
+            details: `Job paused due to severe rate limits. Added ${addedCount} members before stopping.`,
+            status: "error",
+          });
+          
+          throw new Error(`Job paused due to severe rate limits. ${addedCount} members were actually added before rate limiting occurred.`);
+        }
+        
         failedCount++;
       }
 

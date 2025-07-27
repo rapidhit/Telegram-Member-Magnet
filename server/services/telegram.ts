@@ -185,6 +185,8 @@ export class TelegramService {
       const channel = await client.getEntity(channelId);
 
       for (const userId of userIds) {
+        let wasActuallyAdded = false;
+        
         try {
           // Check connection before each operation
           if (!client.connected) {
@@ -202,130 +204,98 @@ export class TelegramService {
             throw new Error(`Could not resolve user entity for ${userId} - user may not be accessible`);
           }
           
-          // Enhanced invitation method with fallback strategies
+          // Enhanced invitation method with fallback strategies - ONLY count if truly successful
           await this.inviteUserToChannel(client, channel, userEntity);
           
+          // If we get here without throwing, the user was actually added
+          wasActuallyAdded = true;
           successful++;
-          console.log(`Successfully added user ${userId} to channel`);
+          console.log(`✓ ACTUALLY ADDED user ${userId} to channel`);
           onProgress?.(successful, failed, userId);
           
         } catch (error) {
           const errorMessage = error instanceof Error ? error.message : String(error);
-          console.log(`Failed to add user ${userId}: ${errorMessage}`);
+          console.log(`✗ FAILED to add user ${userId}: ${errorMessage}`);
           
-          // Handle flood wait errors specifically
-          if (errorMessage.includes('FloodWaitError') || errorMessage.includes('FLOOD_WAIT')) {
+          // Handle severe rate limits - stop trying if wait time is too long
+          if (errorMessage.includes('FloodWaitError') || errorMessage.includes('FLOOD_WAIT') || errorMessage.includes('A wait of')) {
             const waitMatch = errorMessage.match(/(\d+) seconds/);
             if (waitMatch) {
               const waitSeconds = parseInt(waitMatch[1]);
-              console.log(`Flood wait detected, pausing for ${waitSeconds} seconds...`);
-              await new Promise(resolve => setTimeout(resolve, (waitSeconds + 5) * 1000));
+              
+              // If rate limit is over 10 minutes, stop the process
+              if (waitSeconds > 600) {
+                console.log(`🛑 SEVERE RATE LIMIT: ${waitSeconds} seconds (${Math.round(waitSeconds/3600*100)/100} hours). Stopping member addition to prevent account penalties.`);
+                throw new Error(`Severe rate limit detected: ${waitSeconds} seconds wait required. Please try again later or use the contact helper to get accessible member lists.`);
+              }
+              
+              console.log(`⏰ Rate limit: waiting ${waitSeconds} seconds before continuing...`);
+              await new Promise(resolve => setTimeout(resolve, (waitSeconds + 10) * 1000));
             }
           }
           
+          // Mark as failed since the user was NOT actually added
           failed++;
           onProgress?.(successful, failed, userId);
         }
 
-        // Increased delay to prevent rate limiting (3-5 seconds)
-        await new Promise(resolve => setTimeout(resolve, 3000 + Math.random() * 2000));
+        // Conservative delay to prevent rate limiting (5-8 seconds)
+        await new Promise(resolve => setTimeout(resolve, 5000 + Math.random() * 3000));
       }
     } catch (error) {
       console.error("Critical error in addMembersToChannel:", error);
+      // Re-throw severe rate limit errors to stop the job
+      if (error instanceof Error && error.message.includes('Severe rate limit')) {
+        throw error;
+      }
     }
 
+    console.log(`FINAL COUNT: ${successful} users ACTUALLY added, ${failed} failed`);
     return { successful, failed };
   }
 
   private async resolveUserEntity(client: TelegramClient, userId: string) {
     const { Api } = await import("telegram/tl");
     
-    // Multiple strategies to resolve user entity with improved numeric ID handling
+    // SMART RATE LIMIT AVOIDANCE: Use only safe strategies that don't cause 77k second rate limits
     const strategies = [
-      // Strategy 1: Direct ID lookup with proper conversion
+      // Strategy 1: Direct numeric ID lookup (SAFEST - no rate limits)
       async () => {
         if (/^\d+$/.test(userId)) {
           try {
-            // Try as string first
-            return await client.getEntity(userId);
+            // Try direct getEntity with numeric ID
+            return await client.getEntity(parseInt(userId));
           } catch (error1) {
             try {
-              // Try as integer
-              return await client.getEntity(parseInt(userId));
+              // Try as string
+              return await client.getEntity(userId);
             } catch (error2) {
-              try {
-                // Try via InputUser for numeric IDs
-                const { Api } = await import("telegram/tl");
-                const users = await client.invoke(new Api.users.GetUsers({
-                  id: [new Api.InputUser({
-                    userId: userId,
-                    accessHash: 0n,
-                  })]
-                }));
-                return Array.isArray(users) ? users[0] : users;
-              } catch (error3) {
-                return null;
-              }
+              return null; // Don't use InputUser - causes rate limits
             }
           }
         }
         return null;
       },
       
-      // Strategy 2: Username lookup
+      // Strategy 2: ONLY for usernames that are in dialogs (SAFE - no rate limits)
       async () => {
         if (userId.startsWith('@') || /^[a-zA-Z][a-zA-Z0-9_]{4,31}$/.test(userId)) {
-          const username = userId.startsWith('@') ? userId.slice(1) : userId;
-          return await client.getEntity(`@${username}`);
-        }
-        return null;
-      },
-      
-      // Strategy 3: Search in contacts
-      async () => {
-        const contacts = await client.invoke(new Api.contacts.GetContacts({}));
-        if ('users' in contacts) {
-          const user = contacts.users.find((u: any) => 
-            u.id.toString() === userId || 
-            u.username === userId.replace('@', '') ||
-            u.phone === userId
-          );
-          if (user) {
-            return await client.getEntity(user.id);
-          }
-        }
-        return null;
-      },
-      
-      // Strategy 4: Search in dialogs/chats
-      async () => {
-        const dialogs = await client.getDialogs({ limit: 200 });
-        for (const dialog of dialogs) {
-          if (dialog.isUser && dialog.entity) {
-            const entity = dialog.entity as any;
-            if (entity.id.toString() === userId || 
-                entity.username === userId.replace('@', '') ||
-                entity.phone === userId) {
-              return entity;
-            }
-          }
-        }
-        return null;
-      },
-      
-      // Strategy 5: Try resolving through peer resolution
-      async () => {
-        if (/^\d+$/.test(userId)) {
           try {
-            const inputPeer = new Api.InputPeerUser({
-              userId: userId,
-              accessHash: 0n,
-            });
+            // First check if user is in recent dialogs to avoid rate limits
+            const dialogs = await client.getDialogs({ limit: 100 });
+            const username = userId.startsWith('@') ? userId.slice(1) : userId;
             
-            const users = await client.invoke(new Api.users.GetUsers({
-              id: [inputPeer]
-            }));
-            return Array.isArray(users) ? users[0] : users;
+            for (const dialog of dialogs) {
+              if (dialog.isUser && dialog.entity) {
+                const entity = dialog.entity as any;
+                if (entity.username === username) {
+                  return entity; // Found in dialogs - safe to use
+                }
+              }
+            }
+            
+            // If not in dialogs, skip to avoid rate limits
+            return null;
           } catch (error) {
             return null;
           }
@@ -338,11 +308,12 @@ export class TelegramService {
       try {
         const result = await strategies[i]();
         if (result) {
-          console.log(`User entity found using strategy ${i + 1} for ${userId}`);
+          console.log(`✓ User entity found using SAFE strategy ${i + 1} for ${userId}`);
           return Array.isArray(result) ? result[0] : result;
         }
       } catch (error: any) {
-        console.log(`Strategy ${i + 1} failed for ${userId}:`, error.message);
+        // Log but don't retry strategies that cause rate limits
+        console.log(`Strategy ${i + 1} failed for ${userId}:`, error.message.substring(0, 100));
         continue;
       }
     }
@@ -376,7 +347,7 @@ export class TelegramService {
         }
         
         return await client.invoke(new Api.messages.AddChatUser({
-          chatId: chatId,
+          chatId: BigInt(chatId),
           userId: userEntity,
           fwdLimit: 100,
         }));
@@ -653,7 +624,7 @@ export class TelegramService {
       try {
         console.log("Getting direct contacts...");
         const contacts = await client.invoke(new Api.contacts.GetContacts({
-          hash: 0n
+          hash: BigInt(0)
         }));
         
         if ('users' in contacts && Array.isArray(contacts.users)) {
