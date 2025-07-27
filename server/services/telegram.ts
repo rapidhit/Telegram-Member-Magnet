@@ -188,8 +188,11 @@ export class TelegramService {
       console.log(`🚀 FAST-TRACK MODE: Pre-filtering ${userIds.length} users for accessibility...`);
       const accessibleUsers: Array<{userId: string, entity: any}> = [];
       
-      // Quick accessibility check (batch process)
-      for (const userId of userIds.slice(0, Math.min(userIds.length, 50))) { // Check first 50 for speed
+      // Smart pre-filtering: check more users if list is small, fewer if large
+      const checkLimit = userIds.length <= 100 ? userIds.length : Math.min(100, userIds.length);
+      console.log(`🔍 Pre-checking ${checkLimit} users for accessibility...`);
+      
+      for (const userId of userIds.slice(0, checkLimit)) {
         try {
           const userEntity = await this.resolveUserEntity(client, userId);
           if (userEntity) {
@@ -201,40 +204,80 @@ export class TelegramService {
           }
           
           // Minimal delay for pre-filtering
-          await new Promise(resolve => setTimeout(resolve, 200));
+          await new Promise(resolve => setTimeout(resolve, 100));
         } catch (error) {
           failed++;
           onProgress?.(successful, failed, userId);
         }
       }
       
-      console.log(`🎯 ACCESSIBLE USERS FOUND: ${accessibleUsers.length} out of ${Math.min(userIds.length, 50)} checked`);
+      console.log(`🎯 ACCESSIBLE USERS FOUND: ${accessibleUsers.length} out of ${checkLimit} checked`);
+      
+      // If checking a subset, extrapolate the failure count
+      if (checkLimit < userIds.length) {
+        const uncheckedUsers = userIds.length - checkLimit;
+        const estimatedInaccessible = Math.round(uncheckedUsers * (checkLimit - accessibleUsers.length) / checkLimit);
+        failed += estimatedInaccessible;
+        console.log(`📊 ESTIMATED: ${estimatedInaccessible} additional users likely inaccessible`);
+      }
       
       if (accessibleUsers.length === 0) {
         console.log(`❌ NO ACCESSIBLE USERS FOUND. Consider using Contact Helper or extracting from your own channels.`);
+        // Count remaining users as failed since they're inaccessible
+        failed = userIds.length;
+        onProgress?.(successful, failed, "batch_complete");
         return { successful, failed };
       }
 
-      // FAST ADDITION: Process only accessible users
-      for (const {userId, entity} of accessibleUsers) {
+      console.log(`⚡ FAST-PROCESSING ${accessibleUsers.length} accessible users...`);
+
+      // FAST ADDITION: Process accessible users with robust error handling
+      for (let i = 0; i < accessibleUsers.length; i++) {
+        const {userId, entity} = accessibleUsers[i];
+        
         try {
-          // Skip entity resolution since we already have it
+          // Ensure connection is still active
+          if (!client.connected) {
+            console.log("Reconnecting client...");
+            await client.connect();
+            await new Promise(resolve => setTimeout(resolve, 1000));
+          }
+          
+          // Direct invitation without additional entity resolution
           await this.inviteUserToChannel(client, channel, entity);
           
           successful++;
-          console.log(`✅ FAST-ADDED user ${userId} to channel (${successful}/${accessibleUsers.length})`);
+          console.log(`✅ ADDED ${userId} (${successful}/${accessibleUsers.length})`);
           onProgress?.(successful, failed, userId);
           
         } catch (error) {
           const errorMessage = error instanceof Error ? error.message : String(error);
-          console.log(`❌ FAST-ADD FAILED for ${userId}: ${errorMessage}`);
+          console.log(`❌ FAILED ${userId}: ${errorMessage.substring(0, 100)}`);
           failed++;
           onProgress?.(successful, failed, userId);
+          
+          // Stop on severe rate limits
+          if (errorMessage.includes('FloodWaitError') || errorMessage.includes('FLOOD_WAIT')) {
+            const waitMatch = errorMessage.match(/(\d+) seconds/);
+            if (waitMatch && parseInt(waitMatch[1]) > 1800) { // More than 30 minutes
+              console.log(`🛑 SEVERE RATE LIMIT: Stopping job to prevent account penalties`);
+              throw new Error(`Severe rate limit detected. Job stopped at ${successful} additions.`);
+            }
+          }
         }
 
-        // Minimal delay for fast processing
-        await new Promise(resolve => setTimeout(resolve, 800 + Math.random() * 400));
+        // Optimized delay: balance speed and safety
+        if (i < accessibleUsers.length - 1) {
+          const baseDelay = accessibleUsers.length > 50 ? 1000 : 500; // Faster for smaller batches
+          const randomJitter = Math.random() * 300;
+          await new Promise(resolve => setTimeout(resolve, baseDelay + randomJitter));
+        }
       }
+      
+      // Count remaining inaccessible users as failed
+      const remainingFailed = userIds.length - accessibleUsers.length;
+      failed += remainingFailed;
+      onProgress?.(successful, failed, "processing_complete");
       
       console.log(`⚡ FAST-TRACK COMPLETE: ${successful} added, ${failed} failed in ${accessibleUsers.length + failed} attempts`);
       

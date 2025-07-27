@@ -715,9 +715,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
   return httpServer;
 }
 
-// Background job processing
+// Background job processing with comprehensive error handling
 async function processMemberAdditionJob(job: any, telegramAccount: any) {
+  const jobStartTime = Date.now();
+  const MAX_JOB_DURATION = 2 * 60 * 60 * 1000; // 2 hours max
+  
   try {
+    console.log(`🚀 STARTING JOB ${job.id}: Processing ${job.memberList?.length || 0} users`);
+    
+    // Check if job is already completed or cancelled
+    const currentJob = await storage.getMemberAdditionJob(job.id);
+    if (currentJob?.status === "completed" || currentJob?.status === "cancelled") {
+      console.log(`⏹️ Job ${job.id} already ${currentJob.status}, skipping processing`);
+      return;
+    }
+
     const apiId = process.env.TELEGRAM_API_ID || process.env.API_ID || "";
     const apiHash = process.env.TELEGRAM_API_HASH || process.env.API_HASH || "";
 
@@ -729,97 +741,63 @@ async function processMemberAdditionJob(job: any, telegramAccount: any) {
     );
 
     const userIds = job.memberList as string[];
-    const rateLimit = job.rateLimit || 4;
-    const batchDelay = (job.batchDelay || 120) * 1000; // Convert to milliseconds
-    const intervalDelay = Math.max((60 / rateLimit) * 1000, 2000); // Faster: 2-3 seconds minimum
+    if (!userIds || userIds.length === 0) {
+      throw new Error("No user IDs provided for processing");
+    }
 
     let addedCount = job.addedMembers || 0;
     let failedCount = job.failedMembers || 0;
 
-    for (let i = addedCount + failedCount; i < userIds.length; i++) {
-      const currentJob = await storage.getMemberAdditionJob(job.id);
-      if (currentJob?.status === "paused") {
-        console.log(`Job ${job.id} paused at ${i}/${userIds.length}`);
-        break;
-      }
-      
-      if (currentJob?.status === "cancelled") {
-        console.log(`Job ${job.id} cancelled at ${i}/${userIds.length}`);
-        break;
-      }
+    // JOB TIMEOUT PROTECTION
+    const timeoutPromise = new Promise((_, reject) => {
+      setTimeout(() => {
+        reject(new Error(`Job timeout after 2 hours. Processed ${addedCount} members before timeout.`));
+      }, MAX_JOB_DURATION);
+    });
 
-      const userId = userIds[i];
-      console.log(`Processing user ${i + 1}/${userIds.length}: ${userId}`);
-
-      try {
-        const result = await telegramService.addMembersToChannel(
-          client,
-          job.channelId,
-          [userId],
-          (added, failed, current) => {
-            // Real-time progress update
-            console.log(`Live update: Added=${added}, Failed=${failed}, Current=${current}`);
-          }
-        );
-        
-        // ONLY count if ACTUALLY successful
-        if (result.successful > 0) {
-          addedCount++;
-          console.log(`✓ VERIFIED: User ${userId} actually added to channel (${addedCount} total real additions)`);
-        } else {
-          failedCount++;
-          console.log(`✗ CONFIRMED: User ${userId} was NOT added (${failedCount} total failures)`);
-        }
-      } catch (error: any) {
-        console.error(`Failed to add user ${userId}:`, error);
-        
-        // Handle severe rate limit errors by stopping the job
-        if (error.message?.includes('Severe rate limit')) {
-          console.log(`🛑 STOPPING JOB due to severe rate limits`);
-          await storage.updateMemberAdditionJob(job.id, {
-            status: "paused",
-            addedMembers: addedCount,
-            failedMembers: failedCount,
-          });
-          
-          await storage.createActivityLog({
-            telegramAccountId: job.telegramAccountId,
-            jobId: job.id,
-            action: "job_rate_limited",
-            details: `Job paused due to severe rate limits. Added ${addedCount} members before stopping.`,
-            status: "error",
-          });
-          
-          throw new Error(`Job paused due to severe rate limits. ${addedCount} members were actually added before rate limiting occurred.`);
+    // MAIN PROCESSING with timeout protection
+    const processingPromise = telegramService.addMembersToChannel(
+      client,
+      job.channelId,
+      userIds,
+      async (added, failed, current) => {
+        // Check for job cancellation during processing
+        const jobStatus = await storage.getMemberAdditionJob(job.id);
+        if (jobStatus?.status === "cancelled" || jobStatus?.status === "paused") {
+          console.log(`🛑 Job ${job.id} ${jobStatus.status} during processing`);
+          throw new Error(`Job ${jobStatus.status} by user`);
         }
         
-        failedCount++;
-      }
-
-      // Update job progress with exact counts
-      const remaining = userIds.length - (addedCount + failedCount);
-      await storage.updateMemberAdditionJob(job.id, {
-        addedMembers: addedCount,
-        failedMembers: failedCount,
-      });
-      
-      console.log(`Progress: ${addedCount} added, ${failedCount} failed, ${remaining} remaining`);
-
-      // Rate limiting delay
-      if (i < userIds.length - 1) {
-        await new Promise(resolve => setTimeout(resolve, intervalDelay));
-        
-        // Batch delay after every rateLimit additions
-        if ((i + 1) % rateLimit === 0) {
-          await new Promise(resolve => setTimeout(resolve, batchDelay));
+        // Check for timeout
+        if (Date.now() - jobStartTime > MAX_JOB_DURATION) {
+          throw new Error("Job exceeded maximum duration");
         }
+        
+        // Update job progress in real-time
+        await storage.updateMemberAdditionJob(job.id, {
+          addedMembers: added,
+          failedMembers: failed,
+        }).catch(console.error);
+        
+        console.log(`📊 PROGRESS: ${added} added, ${failed} failed, current: ${current}`);
       }
-    }
+    );
 
-    // Mark job as completed
+    // Race between processing and timeout
+    const result = await Promise.race([processingPromise, timeoutPromise]) as any;
+    
+    addedCount = result.successful;
+    failedCount = result.failed;
+    
+    console.log(`🏁 JOB ${job.id} COMPLETE: ${addedCount} actually added, ${failedCount} failed`);
+    
+    // Final job update
+    const finalStatus = addedCount > 0 ? "completed" : "failed";
     await storage.updateMemberAdditionJob(job.id, {
-      status: "completed",
+      status: finalStatus,
       completedAt: new Date(),
+      addedMembers: addedCount,
+      failedMembers: failedCount,
     });
 
     await storage.createActivityLog({
@@ -831,10 +809,20 @@ async function processMemberAdditionJob(job: any, telegramAccount: any) {
     });
 
   } catch (error: any) {
-    console.error("Error processing member addition job:", error);
+    console.error(`❌ JOB ${job.id} ERROR:`, error.message);
+    
+    // Determine appropriate status based on error type
+    let finalStatus = "failed";
+    if (error.message?.includes("cancelled by user")) {
+      finalStatus = "cancelled";
+    } else if (error.message?.includes("paused by user")) {
+      finalStatus = "paused";
+    } else if (error.message?.includes("timeout")) {
+      finalStatus = "failed";
+    }
     
     await storage.updateMemberAdditionJob(job.id, {
-      status: "failed",
+      status: finalStatus,
       completedAt: new Date(),
     });
 
@@ -842,7 +830,7 @@ async function processMemberAdditionJob(job: any, telegramAccount: any) {
       telegramAccountId: job.telegramAccountId,
       jobId: job.id,
       action: "job_failed",
-      details: `Job failed: ${error.message}`,
+      details: `Job ${finalStatus}: ${error.message}`,
       status: "error",
     });
   }
