@@ -10,7 +10,8 @@ import { z } from "zod";
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: {
-    fileSize: 10 * 1024 * 1024, // 10MB limit
+    fileSize: 100 * 1024 * 1024, // 100MB limit for large member lists
+    fieldSize: 50 * 1024 * 1024, // 50MB field size limit
   },
   fileFilter: (req: any, file: any, cb: any) => {
     if (file.mimetype === "text/plain") {
@@ -212,8 +213,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "No valid user IDs found in file" });
       }
 
-      if (userIds.length > 10000) {
-        return res.status(400).json({ message: "Maximum 10,000 users per file" });
+      if (userIds.length > 100000) {
+        return res.status(400).json({ message: "Maximum 100,000 users per file" });
       }
 
       res.json({
@@ -231,7 +232,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Create member addition job
   app.post("/api/jobs/create", async (req, res) => {
     try {
+      const memberListLength = Array.isArray(req.body.memberList) ? req.body.memberList.length : 0;
+      console.log(`Creating job with ${memberListLength} members...`);
+      
       const jobData = insertMemberAdditionJobSchema.parse(req.body);
+      
+      // Validate member list size
+      if (Array.isArray(jobData.memberList) && jobData.memberList.length > 100000) {
+        return res.status(400).json({ 
+          message: "Maximum 100,000 members per job. Please split into smaller batches." 
+        });
+      }
+      
       const job = await storage.createMemberAdditionJob(jobData);
 
       await storage.createActivityLog({
@@ -242,10 +254,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
         status: "info",
       });
 
+      console.log(`Successfully created job ${job.id} with ${job.totalMembers} members`);
       res.json(job);
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error creating member addition job:", error);
-      res.status(500).json({ message: "Failed to create member addition job" });
+      
+      // Handle specific payload size errors
+      if (error.message?.includes('entity too large') || error.message?.includes('PayloadTooLargeError')) {
+        return res.status(413).json({ 
+          message: "Member list too large. Please reduce the number of members or split into smaller batches.",
+          error: "PAYLOAD_TOO_LARGE"
+        });
+      }
+      
+      res.status(500).json({ 
+        message: error.message || "Failed to create member addition job",
+        error: error.code || "CREATION_FAILED"
+      });
     }
   });
 
