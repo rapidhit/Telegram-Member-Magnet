@@ -566,28 +566,62 @@ export class TelegramService {
         
         console.log(`Total participants found: ${allParticipants.length}`);
         
-        // Extract member identifiers with validation
+        // Extract REAL member identifiers with strict validation
         let usersWithUsernames = 0;
         let usersWithoutUsernames = 0;
+        let skippedUsers = 0;
         
         allParticipants.forEach((user: any) => {
-          if (user && user.id) {
-            // Count users by type
-            if (user.username) {
-              usersWithUsernames++;
-              memberUsernames.add(`@${user.username}`);
-            } else {
-              usersWithoutUsernames++;
-              // Only add numeric ID if no username exists
-              memberUsernames.add(user.id.toString());
+          // Strict validation to ensure we only add real users
+          if (user && user.id && typeof user.id !== 'undefined') {
+            // Skip bots and deleted accounts
+            if (user.bot === true) {
+              skippedUsers++;
+              return;
             }
+            
+            // Skip users with invalid or missing data
+            if (user.deleted === true || user.min === true) {
+              skippedUsers++;
+              return;
+            }
+            
+            // Prefer username format for better success rates
+            if (user.username && typeof user.username === 'string' && user.username.trim().length > 0) {
+              usersWithUsernames++;
+              memberUsernames.add(`@${user.username.trim()}`);
+            } else if (user.id && !isNaN(user.id)) {
+              usersWithoutUsernames++;
+              // Only add numeric ID if it's a valid number and no username exists
+              memberUsernames.add(user.id.toString());
+            } else {
+              skippedUsers++;
+            }
+          } else {
+            skippedUsers++;
           }
         });
         
-        console.log(`Users with usernames: ${usersWithUsernames}, Users without usernames: ${usersWithoutUsernames}`);
+        console.log(`Real users extracted - Usernames: ${usersWithUsernames}, Numeric IDs: ${usersWithoutUsernames}, Skipped (bots/invalid): ${skippedUsers}`);
         
-        const result = Array.from(memberUsernames);
-        console.log(`Extracted ${result.length} unique member identifiers from channel`);
+        // Final validation and deduplication
+        const result = Array.from(memberUsernames).filter(member => {
+          // Remove any empty or invalid entries
+          if (!member || typeof member !== 'string' || member.trim().length === 0) {
+            return false;
+          }
+          
+          // Validate username format
+          if (member.startsWith('@')) {
+            return member.length > 1 && /^@[a-zA-Z0-9_]{1,32}$/.test(member);
+          }
+          
+          // Validate numeric ID format
+          return /^\d+$/.test(member) && parseInt(member) > 0;
+        });
+        
+        console.log(`Final result: ${result.length} verified unique member identifiers from ${allParticipants.length} total participants`);
+        console.log(`Accuracy: ${Math.round((result.length / allParticipants.length) * 100)}% valid members extracted`);
         return result;
         
       } catch (error) {

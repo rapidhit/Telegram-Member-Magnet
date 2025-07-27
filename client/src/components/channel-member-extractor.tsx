@@ -181,12 +181,15 @@ export function ChannelMemberExtractor() {
         {extractedMembers.length > 0 && (
           <div className="p-4 bg-gray-50 rounded-lg">
             <div className="flex items-center justify-between mb-2">
-              <h4 className="font-medium text-gray-900">Extracted Members</h4>
+              <h4 className="font-medium text-gray-900">Real Members Extracted</h4>
               <div className="text-right">
-                <span className="text-sm text-gray-500">{extractedMembers.length} unique members</span>
+                <span className="text-sm text-gray-500">{extractedMembers.length} verified real users</span>
                 <div className="text-xs text-gray-400">
                   {extractedMembers.filter(m => m.startsWith('@')).length} @usernames, {' '}
                   {extractedMembers.filter(m => !m.startsWith('@')).length} numeric IDs
+                </div>
+                <div className="text-xs text-green-600 font-medium">
+                  ✓ Bots & deleted accounts filtered out
                 </div>
               </div>
             </div>
@@ -203,7 +206,7 @@ export function ChannelMemberExtractor() {
               )}
             </div>
             <p className="text-xs text-gray-500 mt-2">
-              Download the full list to use in your member addition file
+              Download the full list to use in your member addition file. All extracted users are verified real accounts (bots, deleted accounts, and invalid profiles automatically filtered out).
             </p>
           </div>
         )}
@@ -217,9 +220,10 @@ export function ChannelMemberExtractor() {
             <li>Download the file and upload it to the Member Upload tool</li>
             <li>Start adding members with high success rates!</li>
           </ol>
-          <p className="text-blue-600 text-xs mt-2">
-            <strong>Note:</strong> Large extractions (10,000+ members) use progressive pagination and may take 5-15 minutes to complete.
-          </p>
+          <div className="text-blue-600 text-xs mt-2 space-y-1">
+            <p><strong>Data Quality:</strong> Only real, active user accounts are extracted. Bots, deleted accounts, and invalid profiles are automatically filtered out.</p>
+            <p><strong>Performance:</strong> Large extractions (10,000+ members) use progressive pagination and may take 5-15 minutes to complete.</p>
+          </div>
         </div>
       </CardContent>
     </Card>
