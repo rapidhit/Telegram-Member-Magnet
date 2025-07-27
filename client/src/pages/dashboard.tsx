@@ -13,6 +13,7 @@ import { HelpSupport } from "@/components/help-support";
 import { ContactHelper } from "@/components/contact-helper";
 import { ChannelMemberExtractor } from "@/components/channel-member-extractor";
 import { TelegramConnection } from "@/components/telegram-connection";
+import { SmartMemberGuidance } from "@/components/smart-member-guidance";
 import { Send, Wifi } from "lucide-react";
 
 export default function Dashboard() {
@@ -116,6 +117,9 @@ export default function Dashboard() {
           
           {/* Main Panel */}
           <div className="lg:col-span-2 space-y-6">
+            
+            {/* Smart Member Guidance - Show prominently */}
+            <SmartMemberGuidance />
             
             {/* Channel Selection */}
             <ChannelSelector 
