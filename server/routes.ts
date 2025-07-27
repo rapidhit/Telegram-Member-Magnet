@@ -478,7 +478,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const telegramAccountId = parseInt(req.params.telegramAccountId);
       const channelId = req.params.channelId;
-      const limit = parseInt(req.query.limit as string) || 200;
+      const limit = parseInt(req.query.limit as string) || 5000; // Increase default limit
       
       const telegramAccount = await storage.getTelegramAccount(telegramAccountId);
       

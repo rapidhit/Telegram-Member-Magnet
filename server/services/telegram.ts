@@ -456,11 +456,64 @@ export class TelegramService {
         const channel = await client.getEntity(channelId);
         let allParticipants: any[] = [];
         
-        // Method 1: Standard getParticipants (most reliable)
+        // Method 1: Progressive pagination to get all members
         try {
-          const participants = await client.getParticipants(channel, { limit: Math.min(limit, 1000) });
-          allParticipants = [...participants];
-          console.log(`Method 1: Found ${participants.length} participants`);
+          console.log("Starting progressive member extraction...");
+          const maxLimit = Math.min(limit, 10000); // Increase max limit
+          let offset = 0;
+          const batchSize = 200;
+          
+          while (allParticipants.length < maxLimit) {
+            try {
+              const participants = await client.getParticipants(channel, { 
+                limit: batchSize, 
+                offset: offset 
+              });
+              
+              if (participants.length === 0) {
+                console.log(`No more participants found at offset ${offset}`);
+                break;
+              }
+              
+              allParticipants.push(...participants);
+              offset += participants.length;
+              
+              console.log(`Batch complete: ${participants.length} new participants (total: ${allParticipants.length})`);
+              
+              // If we got fewer than requested, we've reached the end
+              if (participants.length < batchSize) {
+                console.log("Reached end of member list");
+                break;
+              }
+              
+              // Rate limiting: wait between batches
+              await new Promise(resolve => setTimeout(resolve, 1000));
+              
+            } catch (batchError: any) {
+              console.log(`Batch at offset ${offset} failed:`, batchError.message);
+              
+              // Handle specific errors
+              if (batchError.message?.includes('ChatAdminRequiredError') || batchError.message?.includes('CHAT_ADMIN_REQUIRED')) {
+                throw new Error("You need admin permissions to view members of this channel");
+              }
+              
+              if (batchError.message?.includes('ChannelPrivateError') || batchError.message?.includes('CHANNEL_PRIVATE')) {
+                throw new Error("This channel is private and members cannot be accessed");
+              }
+              
+              if (batchError.message?.includes('FloodWaitError') || batchError.message?.includes('FLOOD')) {
+                console.log("Hit rate limit, stopping extraction");
+                break;
+              }
+              
+              // For other errors, try to continue with next batch
+              offset += batchSize;
+              if (offset > maxLimit) break;
+            }
+          }
+          
+          console.log(`Method 1: Found ${allParticipants.length} total participants`);
+          
         } catch (error: any) {
           console.log("Method 1 failed:", error.message);
           
@@ -474,38 +527,13 @@ export class TelegramService {
           }
         }
         
-        // Method 2: Try chunked approach if first method failed or returned few results
-        if (allParticipants.length === 0 || (allParticipants.length < 100 && limit > 100)) {
+        // Method 2: Fallback if pagination failed
+        if (allParticipants.length === 0) {
           try {
-            console.log("Trying chunked participant retrieval...");
-            const chunks = Math.ceil(Math.min(limit, 1000) / 200);
-            const chunkParticipants: any[] = [];
-            
-            for (let i = 0; i < chunks; i++) {
-              const offset = i * 200;
-              const chunkLimit = Math.min(200, limit - offset);
-              
-              try {
-                const participants = await client.getParticipants(channel, { 
-                  limit: chunkLimit, 
-                  offset 
-                });
-                chunkParticipants.push(...participants);
-                
-                if (participants.length < chunkLimit) break;
-                
-                // Rate limit protection
-                await new Promise(resolve => setTimeout(resolve, 1500));
-              } catch (chunkError: any) {
-                console.log(`Chunk ${i + 1} failed:`, chunkError.message);
-                break;
-              }
-            }
-            
-            if (chunkParticipants.length > allParticipants.length) {
-              allParticipants = chunkParticipants;
-              console.log(`Method 2: Found ${allParticipants.length} participants in chunks`);
-            }
+            console.log("Trying fallback single request...");
+            const participants = await client.getParticipants(channel, { limit: 1000 });
+            allParticipants = [...participants];
+            console.log(`Method 2: Found ${participants.length} participants via fallback`);
           } catch (error: any) {
             console.log("Method 2 failed:", error.message);
           }

@@ -148,11 +148,11 @@ export function ChannelMemberExtractor() {
               value={extractLimit}
               onChange={(e) => setExtractLimit(parseInt(e.target.value) || 200)}
               min={10}
-              max={1000}
+              max={10000}
               placeholder="Number of members to extract"
             />
             <p className="text-xs text-gray-500 mt-1">
-              How many members to extract (10-1000). Higher numbers may take longer.
+              How many members to extract (10-10,000). Higher numbers may take longer.
             </p>
           </div>
         </div>
