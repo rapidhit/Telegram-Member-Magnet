@@ -189,34 +189,7 @@ export function MemberFileUpload({ onMembersUploaded }: MemberFileUploadProps) {
           </div>
         )}
 
-        {/* Low Success Rate Warning */}
-        {uploadedData && uploadedData.successRate !== undefined && uploadedData.successRate < 50 && (
-          <div className="p-4 bg-red-50 rounded-lg border border-red-200">
-            <div className="flex items-start space-x-3">
-              <AlertCircle className="w-5 h-5 text-red-600 mt-0.5" />
-              <div>
-                <h3 className="font-medium text-red-900 mb-2">Low Success Rate Detected ({uploadedData.successRate}%)</h3>
-                <p className="text-sm text-red-800 mb-3">
-                  Your member list contains mostly inaccessible users. For guaranteed 80-100% success:
-                </p>
-                <div className="space-y-2">
-                  <div className="flex items-center space-x-2">
-                    <div className="w-1.5 h-1.5 bg-green-500 rounded-full"></div>
-                    <p className="text-sm text-red-700">
-                      <strong>Best:</strong> Extract members from channels you admin (Channel Member Extractor)
-                    </p>
-                  </div>
-                  <div className="flex items-center space-x-2">
-                    <div className="w-1.5 h-1.5 bg-blue-500 rounded-full"></div>
-                    <p className="text-sm text-red-700">
-                      <strong>Good:</strong> Download accessible contacts (Contact Helper)
-                    </p>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
+
 
         <Alert>
           <Info className="h-4 w-4" />

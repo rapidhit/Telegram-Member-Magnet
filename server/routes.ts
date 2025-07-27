@@ -721,12 +721,12 @@ async function processMemberAdditionJob(job: any, telegramAccount: any) {
   const MAX_JOB_DURATION = 2 * 60 * 60 * 1000; // 2 hours max
   
   try {
-    console.log(`🚀 STARTING JOB ${job.id}: Processing ${job.memberList?.length || 0} users`);
+    console.log(`Starting job ${job.id}: Processing ${job.memberList?.length || 0} users`);
     
     // Check if job is already completed or cancelled
     const currentJob = await storage.getMemberAdditionJob(job.id);
     if (currentJob?.status === "completed" || currentJob?.status === "cancelled") {
-      console.log(`⏹️ Job ${job.id} already ${currentJob.status}, skipping processing`);
+      console.log(`Job ${job.id} already ${currentJob.status}, skipping processing`);
       return;
     }
 
@@ -764,7 +764,7 @@ async function processMemberAdditionJob(job: any, telegramAccount: any) {
         // Check for job cancellation during processing
         const jobStatus = await storage.getMemberAdditionJob(job.id);
         if (jobStatus?.status === "cancelled" || jobStatus?.status === "paused") {
-          console.log(`🛑 Job ${job.id} ${jobStatus.status} during processing`);
+          console.log(`Job ${job.id} ${jobStatus.status} during processing`);
           throw new Error(`Job ${jobStatus.status} by user`);
         }
         
@@ -779,7 +779,7 @@ async function processMemberAdditionJob(job: any, telegramAccount: any) {
           failedMembers: failed,
         }).catch(console.error);
         
-        console.log(`📊 PROGRESS: ${added} added, ${failed} failed, current: ${current}`);
+        console.log(`Progress: ${added} added, ${failed} failed, current: ${current}`);
       }
     );
 
@@ -789,7 +789,7 @@ async function processMemberAdditionJob(job: any, telegramAccount: any) {
     addedCount = result.successful;
     failedCount = result.failed;
     
-    console.log(`🏁 JOB ${job.id} COMPLETE: ${addedCount} actually added, ${failedCount} failed`);
+    console.log(`Job ${job.id} complete: ${addedCount} actually added, ${failedCount} failed`);
     
     // Final job update
     const finalStatus = addedCount > 0 ? "completed" : "failed";
@@ -809,7 +809,7 @@ async function processMemberAdditionJob(job: any, telegramAccount: any) {
     });
 
   } catch (error: any) {
-    console.error(`❌ JOB ${job.id} ERROR:`, error.message);
+    console.error(`Job ${job.id} error:`, error.message);
     
     // Determine appropriate status based on error type
     let finalStatus = "failed";

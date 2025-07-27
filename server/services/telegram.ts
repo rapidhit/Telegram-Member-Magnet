@@ -184,100 +184,60 @@ export class TelegramService {
 
       const channel = await client.getEntity(channelId);
       
-      // FAST-TRACK MODE: Pre-filter accessible users for speed
-      console.log(`🚀 FAST-TRACK MODE: Pre-filtering ${userIds.length} users for accessibility...`);
-      const accessibleUsers: Array<{userId: string, entity: any}> = [];
-      
-      // Smart pre-filtering: check more users if list is small, fewer if large
-      const checkLimit = userIds.length <= 100 ? userIds.length : Math.min(100, userIds.length);
-      console.log(`🔍 Pre-checking ${checkLimit} users for accessibility...`);
-      
-      for (const userId of userIds.slice(0, checkLimit)) {
+      for (const userId of userIds) {
         try {
-          const userEntity = await this.resolveUserEntity(client, userId);
-          if (userEntity) {
-            accessibleUsers.push({userId, entity: userEntity});
-            console.log(`✓ Pre-verified accessible: ${userId}`);
-          } else {
-            failed++; // Count inaccessible users as failed immediately
-            onProgress?.(successful, failed, userId);
-          }
-          
-          // Minimal delay for pre-filtering
-          await new Promise(resolve => setTimeout(resolve, 100));
-        } catch (error) {
-          failed++;
-          onProgress?.(successful, failed, userId);
-        }
-      }
-      
-      console.log(`🎯 ACCESSIBLE USERS FOUND: ${accessibleUsers.length} out of ${checkLimit} checked`);
-      
-      // If checking a subset, extrapolate the failure count
-      if (checkLimit < userIds.length) {
-        const uncheckedUsers = userIds.length - checkLimit;
-        const estimatedInaccessible = Math.round(uncheckedUsers * (checkLimit - accessibleUsers.length) / checkLimit);
-        failed += estimatedInaccessible;
-        console.log(`📊 ESTIMATED: ${estimatedInaccessible} additional users likely inaccessible`);
-      }
-      
-      if (accessibleUsers.length === 0) {
-        console.log(`❌ NO ACCESSIBLE USERS FOUND. Consider using Contact Helper or extracting from your own channels.`);
-        // Count remaining users as failed since they're inaccessible
-        failed = userIds.length;
-        onProgress?.(successful, failed, "batch_complete");
-        return { successful, failed };
-      }
-
-      console.log(`⚡ FAST-PROCESSING ${accessibleUsers.length} accessible users...`);
-
-      // FAST ADDITION: Process accessible users with robust error handling
-      for (let i = 0; i < accessibleUsers.length; i++) {
-        const {userId, entity} = accessibleUsers[i];
-        
-        try {
-          // Ensure connection is still active
+          // Check connection before each operation
           if (!client.connected) {
-            console.log("Reconnecting client...");
+            console.log("Client disconnected during operation, attempting to reconnect...");
             await client.connect();
-            await new Promise(resolve => setTimeout(resolve, 1000));
+            await new Promise(resolve => setTimeout(resolve, 2000));
+          }
+
+          let userEntity;
+          
+          // Enhanced entity resolution with multiple fallback strategies
+          userEntity = await this.resolveUserEntity(client, userId);
+          
+          if (!userEntity) {
+            throw new Error(`Could not resolve user entity for ${userId}`);
           }
           
-          // Direct invitation without additional entity resolution
-          await this.inviteUserToChannel(client, channel, entity);
+          // Enhanced invitation method with fallback strategies
+          await this.inviteUserToChannel(client, channel, userEntity);
           
+          // If we get here without throwing, the user was actually added
           successful++;
-          console.log(`✅ ADDED ${userId} (${successful}/${accessibleUsers.length})`);
+          console.log(`✓ ACTUALLY ADDED user ${userId} to channel`);
           onProgress?.(successful, failed, userId);
           
         } catch (error) {
           const errorMessage = error instanceof Error ? error.message : String(error);
-          console.log(`❌ FAILED ${userId}: ${errorMessage.substring(0, 100)}`);
-          failed++;
-          onProgress?.(successful, failed, userId);
+          console.log(`✗ FAILED to add user ${userId}: ${errorMessage}`);
           
-          // Stop on severe rate limits
-          if (errorMessage.includes('FloodWaitError') || errorMessage.includes('FLOOD_WAIT')) {
+          // Handle severe rate limits - stop trying if wait time is too long
+          if (errorMessage.includes('FloodWaitError') || errorMessage.includes('FLOOD_WAIT') || errorMessage.includes('A wait of')) {
             const waitMatch = errorMessage.match(/(\d+) seconds/);
-            if (waitMatch && parseInt(waitMatch[1]) > 1800) { // More than 30 minutes
-              console.log(`🛑 SEVERE RATE LIMIT: Stopping job to prevent account penalties`);
-              throw new Error(`Severe rate limit detected. Job stopped at ${successful} additions.`);
+            if (waitMatch) {
+              const waitSeconds = parseInt(waitMatch[1]);
+              
+              // If rate limit is over 10 minutes, stop the process
+              if (waitSeconds > 600) {
+                console.log(`Severe rate limit: ${waitSeconds} seconds. Stopping member addition.`);
+                throw new Error(`Severe rate limit detected: ${waitSeconds} seconds wait required.`);
+              }
+              
+              console.log(`Rate limit: waiting ${waitSeconds} seconds before continuing...`);
+              await new Promise(resolve => setTimeout(resolve, (waitSeconds + 10) * 1000));
             }
           }
+          
+          failed++;
+          onProgress?.(successful, failed, userId);
         }
 
-        // Optimized delay: balance speed and safety
-        if (i < accessibleUsers.length - 1) {
-          const baseDelay = accessibleUsers.length > 50 ? 1000 : 500; // Faster for smaller batches
-          const randomJitter = Math.random() * 300;
-          await new Promise(resolve => setTimeout(resolve, baseDelay + randomJitter));
-        }
+        // Conservative delay to prevent rate limiting
+        await new Promise(resolve => setTimeout(resolve, 3000 + Math.random() * 2000));
       }
-      
-      // Count remaining inaccessible users as failed
-      const remainingFailed = userIds.length - accessibleUsers.length;
-      failed += remainingFailed;
-      onProgress?.(successful, failed, "processing_complete");
       
       console.log(`⚡ FAST-TRACK COMPLETE: ${successful} added, ${failed} failed in ${accessibleUsers.length + failed} attempts`);
       
@@ -285,7 +245,7 @@ export class TelegramService {
       console.error("Critical error in addMembersToChannel:", error);
     }
 
-    console.log(`🏁 FINAL RESULT: ${successful} users ACTUALLY added, ${failed} failed`);
+    console.log(`FINAL COUNT: ${successful} users ACTUALLY added, ${failed} failed`);
     return { successful, failed };
   }
 
