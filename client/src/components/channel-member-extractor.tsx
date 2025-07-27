@@ -146,13 +146,13 @@ export function ChannelMemberExtractor() {
               id="extract-limit"
               type="number"
               value={extractLimit}
-              onChange={(e) => setExtractLimit(parseInt(e.target.value) || 200)}
+              onChange={(e) => setExtractLimit(parseInt(e.target.value) || 10000)}
               min={10}
-              max={10000}
+              max={100000}
               placeholder="Number of members to extract"
             />
             <p className="text-xs text-gray-500 mt-1">
-              How many members to extract (10-10,000). Higher numbers may take longer.
+              How many members to extract (10-100,000). Higher numbers may take longer.
             </p>
           </div>
         </div>
@@ -212,11 +212,14 @@ export function ChannelMemberExtractor() {
           <p className="font-medium text-blue-800 mb-1">How it works:</p>
           <ol className="text-blue-700 space-y-1 ml-4 list-decimal">
             <li>Select any channel you're a member of</li>
-            <li>Set how many members you want to extract</li>
-            <li>Click "Extract Members" to get the list</li>
+            <li>Set how many members you want to extract (up to 100,000)</li>
+            <li>Click "Extract Members" - large extractions may take several minutes</li>
             <li>Download the file and upload it to the Member Upload tool</li>
             <li>Start adding members with high success rates!</li>
           </ol>
+          <p className="text-blue-600 text-xs mt-2">
+            <strong>Note:</strong> Large extractions (10,000+ members) use progressive pagination and may take 5-15 minutes to complete.
+          </p>
         </div>
       </CardContent>
     </Card>

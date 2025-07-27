@@ -458,12 +458,14 @@ export class TelegramService {
         
         // Method 1: Progressive pagination to get all members
         try {
-          console.log("Starting progressive member extraction...");
-          const maxLimit = Math.min(limit, 10000); // Increase max limit
+          console.log(`Starting progressive member extraction for up to ${limit} members...`);
+          const maxLimit = Math.min(limit, 100000); // Support up to 100k members
           let offset = 0;
           const batchSize = 200;
+          let consecutiveFailures = 0;
+          const maxConsecutiveFailures = 3;
           
-          while (allParticipants.length < maxLimit) {
+          while (allParticipants.length < maxLimit && consecutiveFailures < maxConsecutiveFailures) {
             try {
               const participants = await client.getParticipants(channel, { 
                 limit: batchSize, 
@@ -477,8 +479,12 @@ export class TelegramService {
               
               allParticipants.push(...participants);
               offset += participants.length;
+              consecutiveFailures = 0; // Reset failure counter on success
               
-              console.log(`Batch complete: ${participants.length} new participants (total: ${allParticipants.length})`);
+              // Log progress every 1000 members for large extractions
+              if (allParticipants.length % 1000 === 0 || participants.length < batchSize) {
+                console.log(`Progress: ${allParticipants.length} members extracted (${Math.round((allParticipants.length / maxLimit) * 100)}% of target)`);
+              }
               
               // If we got fewer than requested, we've reached the end
               if (participants.length < batchSize) {
@@ -486,11 +492,13 @@ export class TelegramService {
                 break;
               }
               
-              // Rate limiting: wait between batches
-              await new Promise(resolve => setTimeout(resolve, 1000));
+              // Dynamic rate limiting based on extraction size
+              const delay = maxLimit > 10000 ? 800 : 1000; // Faster for large extractions
+              await new Promise(resolve => setTimeout(resolve, delay));
               
             } catch (batchError: any) {
-              console.log(`Batch at offset ${offset} failed:`, batchError.message);
+              consecutiveFailures++;
+              console.log(`Batch at offset ${offset} failed (failure ${consecutiveFailures}/${maxConsecutiveFailures}):`, batchError.message);
               
               // Handle specific errors
               if (batchError.message?.includes('ChatAdminRequiredError') || batchError.message?.includes('CHAT_ADMIN_REQUIRED')) {
@@ -502,13 +510,26 @@ export class TelegramService {
               }
               
               if (batchError.message?.includes('FloodWaitError') || batchError.message?.includes('FLOOD')) {
-                console.log("Hit rate limit, stopping extraction");
-                break;
+                const waitMatch = batchError.message.match(/(\d+) seconds/);
+                const waitTime = waitMatch ? parseInt(waitMatch[1]) : 300;
+                console.log(`Hit rate limit, waiting ${waitTime} seconds...`);
+                
+                if (waitTime > 600) {
+                  console.log("Rate limit too long, stopping extraction");
+                  break;
+                }
+                
+                await new Promise(resolve => setTimeout(resolve, waitTime * 1000));
+                consecutiveFailures = 0; // Reset after waiting
+                continue;
               }
               
-              // For other errors, try to continue with next batch
+              // For other errors, advance offset and try to continue
               offset += batchSize;
-              if (offset > maxLimit) break;
+              if (offset > maxLimit || consecutiveFailures >= maxConsecutiveFailures) break;
+              
+              // Wait before retrying
+              await new Promise(resolve => setTimeout(resolve, 2000));
             }
           }
           

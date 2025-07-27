@@ -478,7 +478,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const telegramAccountId = parseInt(req.params.telegramAccountId);
       const channelId = req.params.channelId;
-      const limit = parseInt(req.query.limit as string) || 5000; // Increase default limit
+      const limit = parseInt(req.query.limit as string) || 10000; // Increase default limit
       
       const telegramAccount = await storage.getTelegramAccount(telegramAccountId);
       
@@ -504,15 +504,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
         const members = await telegramService.getChannelMembers(client, channelId, limit);
         
+        const stats = {
+          totalMembers: members.length,
+          usernameFormat: members.filter(m => m.startsWith('@')).length,
+          numericFormat: members.filter(m => !m.startsWith('@')).length,
+          extractionLimit: limit,
+          timestamp: new Date().toISOString()
+        };
+        
         res.json({
           members,
           count: members.length,
           channelId,
-          message: `Extracted ${members.length} unique members from channel`,
-          stats: {
-            totalMembers: members.length,
-            usernameFormat: members.filter(m => m.startsWith('@')).length,
-            numericFormat: members.filter(m => !m.startsWith('@')).length
+          message: `Successfully extracted ${members.length} unique members from channel`,
+          stats,
+          extractionInfo: {
+            requestedLimit: limit,
+            actualCount: members.length,
+            reachedLimit: members.length >= limit,
+            extractionTime: new Date().toISOString()
           }
         });
       } catch (error: any) {
