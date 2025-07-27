@@ -731,7 +731,7 @@ async function processMemberAdditionJob(job: any, telegramAccount: any) {
     const userIds = job.memberList as string[];
     const rateLimit = job.rateLimit || 4;
     const batchDelay = (job.batchDelay || 120) * 1000; // Convert to milliseconds
-    const intervalDelay = Math.max((60 / rateLimit) * 1000, 8000); // Minimum 8 seconds to avoid rate limits
+    const intervalDelay = Math.max((60 / rateLimit) * 1000, 2000); // Faster: 2-3 seconds minimum
 
     let addedCount = job.addedMembers || 0;
     let failedCount = job.failedMembers || 0;

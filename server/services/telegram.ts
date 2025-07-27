@@ -179,123 +179,92 @@ export class TelegramService {
       if (!client.connected) {
         console.log("Client disconnected, attempting to reconnect...");
         await client.connect();
-        await new Promise(resolve => setTimeout(resolve, 2000)); // Wait for connection
+        await new Promise(resolve => setTimeout(resolve, 2000));
       }
 
       const channel = await client.getEntity(channelId);
-
-      for (const userId of userIds) {
-        let wasActuallyAdded = false;
-        
+      
+      // FAST-TRACK MODE: Pre-filter accessible users for speed
+      console.log(`🚀 FAST-TRACK MODE: Pre-filtering ${userIds.length} users for accessibility...`);
+      const accessibleUsers: Array<{userId: string, entity: any}> = [];
+      
+      // Quick accessibility check (batch process)
+      for (const userId of userIds.slice(0, Math.min(userIds.length, 50))) { // Check first 50 for speed
         try {
-          // Check connection before each operation
-          if (!client.connected) {
-            console.log("Client disconnected during operation, attempting to reconnect...");
-            await client.connect();
-            await new Promise(resolve => setTimeout(resolve, 2000));
+          const userEntity = await this.resolveUserEntity(client, userId);
+          if (userEntity) {
+            accessibleUsers.push({userId, entity: userEntity});
+            console.log(`✓ Pre-verified accessible: ${userId}`);
+          } else {
+            failed++; // Count inaccessible users as failed immediately
+            onProgress?.(successful, failed, userId);
           }
+          
+          // Minimal delay for pre-filtering
+          await new Promise(resolve => setTimeout(resolve, 200));
+        } catch (error) {
+          failed++;
+          onProgress?.(successful, failed, userId);
+        }
+      }
+      
+      console.log(`🎯 ACCESSIBLE USERS FOUND: ${accessibleUsers.length} out of ${Math.min(userIds.length, 50)} checked`);
+      
+      if (accessibleUsers.length === 0) {
+        console.log(`❌ NO ACCESSIBLE USERS FOUND. Consider using Contact Helper or extracting from your own channels.`);
+        return { successful, failed };
+      }
 
-          let userEntity;
+      // FAST ADDITION: Process only accessible users
+      for (const {userId, entity} of accessibleUsers) {
+        try {
+          // Skip entity resolution since we already have it
+          await this.inviteUserToChannel(client, channel, entity);
           
-          // Enhanced entity resolution with multiple fallback strategies
-          userEntity = await this.resolveUserEntity(client, userId);
-          
-          if (!userEntity) {
-            throw new Error(`Could not resolve user entity for ${userId} - user may not be accessible`);
-          }
-          
-          // Enhanced invitation method with fallback strategies - ONLY count if truly successful
-          await this.inviteUserToChannel(client, channel, userEntity);
-          
-          // If we get here without throwing, the user was actually added
-          wasActuallyAdded = true;
           successful++;
-          console.log(`✓ ACTUALLY ADDED user ${userId} to channel`);
+          console.log(`✅ FAST-ADDED user ${userId} to channel (${successful}/${accessibleUsers.length})`);
           onProgress?.(successful, failed, userId);
           
         } catch (error) {
           const errorMessage = error instanceof Error ? error.message : String(error);
-          console.log(`✗ FAILED to add user ${userId}: ${errorMessage}`);
-          
-          // Handle severe rate limits - stop trying if wait time is too long
-          if (errorMessage.includes('FloodWaitError') || errorMessage.includes('FLOOD_WAIT') || errorMessage.includes('A wait of')) {
-            const waitMatch = errorMessage.match(/(\d+) seconds/);
-            if (waitMatch) {
-              const waitSeconds = parseInt(waitMatch[1]);
-              
-              // If rate limit is over 10 minutes, stop the process
-              if (waitSeconds > 600) {
-                console.log(`🛑 SEVERE RATE LIMIT: ${waitSeconds} seconds (${Math.round(waitSeconds/3600*100)/100} hours). Stopping member addition to prevent account penalties.`);
-                throw new Error(`Severe rate limit detected: ${waitSeconds} seconds wait required. Please try again later or use the contact helper to get accessible member lists.`);
-              }
-              
-              console.log(`⏰ Rate limit: waiting ${waitSeconds} seconds before continuing...`);
-              await new Promise(resolve => setTimeout(resolve, (waitSeconds + 10) * 1000));
-            }
-          }
-          
-          // Mark as failed since the user was NOT actually added
+          console.log(`❌ FAST-ADD FAILED for ${userId}: ${errorMessage}`);
           failed++;
           onProgress?.(successful, failed, userId);
         }
 
-        // Conservative delay to prevent rate limiting (5-8 seconds)
-        await new Promise(resolve => setTimeout(resolve, 5000 + Math.random() * 3000));
+        // Minimal delay for fast processing
+        await new Promise(resolve => setTimeout(resolve, 800 + Math.random() * 400));
       }
+      
+      console.log(`⚡ FAST-TRACK COMPLETE: ${successful} added, ${failed} failed in ${accessibleUsers.length + failed} attempts`);
+      
     } catch (error) {
       console.error("Critical error in addMembersToChannel:", error);
-      // Re-throw severe rate limit errors to stop the job
-      if (error instanceof Error && error.message.includes('Severe rate limit')) {
-        throw error;
-      }
     }
 
-    console.log(`FINAL COUNT: ${successful} users ACTUALLY added, ${failed} failed`);
+    console.log(`🏁 FINAL RESULT: ${successful} users ACTUALLY added, ${failed} failed`);
     return { successful, failed };
   }
 
   private async resolveUserEntity(client: TelegramClient, userId: string) {
     const { Api } = await import("telegram/tl");
     
-    // SMART RATE LIMIT AVOIDANCE: Use only safe strategies that don't cause 77k second rate limits
+    // HIGH-SPEED, HIGH-SUCCESS USER RESOLUTION - Only use methods that work
     const strategies = [
-      // Strategy 1: Direct numeric ID lookup (SAFEST - no rate limits)
+      // Strategy 1: Direct entity lookup for users in our network
+      async () => {
+        try {
+          return await client.getEntity(userId);
+        } catch (error) {
+          return null;
+        }
+      },
+      
+      // Strategy 2: For numeric IDs, try integer conversion
       async () => {
         if (/^\d+$/.test(userId)) {
           try {
-            // Try direct getEntity with numeric ID
             return await client.getEntity(parseInt(userId));
-          } catch (error1) {
-            try {
-              // Try as string
-              return await client.getEntity(userId);
-            } catch (error2) {
-              return null; // Don't use InputUser - causes rate limits
-            }
-          }
-        }
-        return null;
-      },
-      
-      // Strategy 2: ONLY for usernames that are in dialogs (SAFE - no rate limits)
-      async () => {
-        if (userId.startsWith('@') || /^[a-zA-Z][a-zA-Z0-9_]{4,31}$/.test(userId)) {
-          try {
-            // First check if user is in recent dialogs to avoid rate limits
-            const dialogs = await client.getDialogs({ limit: 100 });
-            const username = userId.startsWith('@') ? userId.slice(1) : userId;
-            
-            for (const dialog of dialogs) {
-              if (dialog.isUser && dialog.entity) {
-                const entity = dialog.entity as any;
-                if (entity.username === username) {
-                  return entity; // Found in dialogs - safe to use
-                }
-              }
-            }
-            
-            // If not in dialogs, skip to avoid rate limits
-            return null;
           } catch (error) {
             return null;
           }
@@ -308,17 +277,13 @@ export class TelegramService {
       try {
         const result = await strategies[i]();
         if (result) {
-          console.log(`✓ User entity found using SAFE strategy ${i + 1} for ${userId}`);
           return Array.isArray(result) ? result[0] : result;
         }
       } catch (error: any) {
-        // Log but don't retry strategies that cause rate limits
-        console.log(`Strategy ${i + 1} failed for ${userId}:`, error.message.substring(0, 100));
         continue;
       }
     }
     
-    console.log(`All strategies failed for user: ${userId}`);
     return null;
   }
 
