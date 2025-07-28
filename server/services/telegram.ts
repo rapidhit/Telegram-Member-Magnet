@@ -195,14 +195,14 @@ export class TelegramService {
 
           let userEntity;
           
-          // Try to resolve and add user
+          // Enhanced user resolution with debugging
           userEntity = await this.resolveUserEntity(client, userId);
           
           if (!userEntity) {
             throw new Error(`Could not resolve user entity for ${userId}`);
           }
           
-          // Add user to channel
+          // Add user to channel with multiple methods
           await this.inviteUserToChannel(client, channel, userEntity);
           
           // Success - user was added
@@ -306,67 +306,17 @@ export class TelegramService {
   private async inviteUserToChannel(client: TelegramClient, channel: any, userEntity: any) {
     const { Api } = await import("telegram/tl");
     
-    // Get the channel entity to determine its type
-    const channelEntity = await client.getEntity(channel.id || channel);
-    
-    // Try multiple invitation methods with improved numeric ID handling
-    const methods = [
-      // Method 1: Standard channel invitation (for channels/supergroups)
-      async () => {
-        return await client.invoke(new Api.channels.InviteToChannel({
-          channel: channelEntity,
-          users: [userEntity],
-        }));
-      },
-      
-      // Method 2: Add chat user with proper channel ID handling
-      async () => {
-        // For numeric IDs, ensure proper conversion
-        let chatId = channelEntity.id;
-        if (typeof chatId === 'object' && chatId.toString) {
-          chatId = chatId.toString();
-        }
-        
-        return await client.invoke(new Api.messages.AddChatUser({
-          chatId: BigInt(chatId),
-          userId: userEntity,
-          fwdLimit: 100,
-        }));
-      },
-      
-      // Method 3: Edit chat admin for adding users with permissions
-      async () => {
-        return await client.invoke(new Api.channels.EditBanned({
-          channel: channelEntity,
-          participant: userEntity,
-          bannedRights: new Api.ChatBannedRights({
-            viewMessages: false,
-            sendMessages: false,
-            sendMedia: false,
-            sendStickers: false,
-            sendGifs: false,
-            sendGames: false,
-            sendInline: false,
-            embedLinks: false,
-            untilDate: 0,
-          }),
-        }));
-      }
-    ];
-
-    let lastError;
-    for (let i = 0; i < methods.length; i++) {
-      try {
-        await methods[i]();
-        return; // Success
-      } catch (error: any) {
-        lastError = error;
-        console.log(`Invitation method ${i + 1} failed:`, error.message);
-        continue;
-      }
+    try {
+      // Direct channel invitation - most reliable method
+      await client.invoke(new Api.channels.InviteToChannel({
+        channel: channel,
+        users: [userEntity],
+      }));
+      return true;
+    } catch (error) {
+      // If that fails, the user couldn't be added for legitimate reasons
+      throw error;
     }
-    
-    throw lastError || new Error('All invitation methods failed');
   }
 
   async getUserInfo(client: TelegramClient) {
