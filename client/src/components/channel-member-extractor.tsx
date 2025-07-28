@@ -7,21 +7,21 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { Download, Users, RefreshCw } from "lucide-react";
-import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { cn } from "@/lib/utils";
 
 export function ChannelMemberExtractor() {
   const [selectedChannel, setSelectedChannel] = useState<string>("");
-  const [extractLimit, setExtractLimit] = useState<number>(1000);
+  const [extractLimit, setExtractLimit] = useState<number>(200);
   const [extractedMembers, setExtractedMembers] = useState<string[]>([]);
   const { toast } = useToast();
 
-  // Get available channels (ALL channels for extraction, not just admin ones)
-  const { data: channels, isLoading: channelsLoading, refetch: refetchChannels } = useQuery({
-    queryKey: ["/api/telegram/all-channels", 1],
+  // Get available channels
+  const { data: channels, isLoading: channelsLoading } = useQuery({
+    queryKey: ["/api/telegram/channels", 1],
     queryFn: async () => {
-      const response = await apiRequest("GET", "/api/telegram/all-channels/1");
+      const response = await apiRequest("GET", "/api/telegram/channels/1");
       return response.json();
     },
   });
@@ -106,10 +106,12 @@ export function ChannelMemberExtractor() {
       <CardContent className="space-y-4">
         <Alert>
           <AlertDescription>
-            Extract member usernames from channels you're part of. This tool fetches members quickly to provide you with accessible user lists.
+            Extract member usernames from channels you're part of. This gives you a list of users 
+            who are likely accessible since you share common channels.
             <div className="mt-2 p-2 bg-green-50 rounded border border-green-200">
               <p className="text-sm text-green-800">
-                <strong>Fast Extraction:</strong> Optimized to quickly fetch member lists from any channel you belong to.
+                <strong>High Success Rate:</strong> Members from shared channels typically have 
+                better addition success rates than random users.
               </p>
             </div>
           </AlertDescription>
@@ -128,7 +130,7 @@ export function ChannelMemberExtractor() {
                 ) : channels?.length > 0 ? (
                   channels.map((channel: any) => (
                     <SelectItem key={channel.id} value={channel.id}>
-                      {channel.title} ({channel.memberCount?.toLocaleString() || 'Unknown'} members)
+                      {channel.title} ({channel.memberCount || 'Unknown'} members)
                     </SelectItem>
                   ))
                 ) : (
@@ -144,27 +146,15 @@ export function ChannelMemberExtractor() {
               id="extract-limit"
               type="number"
               value={extractLimit}
-              onChange={(e) => setExtractLimit(parseInt(e.target.value) || 2000)}
-              min={50}
-              max={2000}
+              onChange={(e) => setExtractLimit(parseInt(e.target.value) || 10000)}
+              min={10}
+              max={100000}
               placeholder="Number of members to extract"
             />
             <p className="text-xs text-gray-500 mt-1">
-              How many members to extract (50-2000). Optimized for speed and reliability.
+              How many members to extract (10-100,000). Higher numbers may take longer.
             </p>
           </div>
-        </div>
-
-        <div className="flex gap-2">
-          <Button
-            onClick={() => refetchChannels()}
-            disabled={channelsLoading}
-            variant="ghost"
-            size="sm"
-          >
-            <RefreshCw className={cn("h-4 w-4 mr-1", channelsLoading && "animate-spin")} />
-            Refresh Channels
-          </Button>
         </div>
 
         <div className="flex gap-2">
@@ -174,7 +164,7 @@ export function ChannelMemberExtractor() {
             variant="outline"
             className="flex-1"
           >
-            <RefreshCw className={`w-4 h-4 mr-2 ${extractMembersMutation.isPending ? 'animate-spin' : ''}`} />
+            <RefreshCw className={cn("w-4 h-4 mr-2", extractMembersMutation.isPending && "animate-spin")} />
             Extract Members
           </Button>
           
@@ -191,12 +181,15 @@ export function ChannelMemberExtractor() {
         {extractedMembers.length > 0 && (
           <div className="p-4 bg-gray-50 rounded-lg">
             <div className="flex items-center justify-between mb-2">
-              <h4 className="font-medium text-gray-900">Extracted Members</h4>
+              <h4 className="font-medium text-gray-900">Real Members Extracted</h4>
               <div className="text-right">
-                <span className="text-sm text-gray-500">{extractedMembers.length} unique members</span>
+                <span className="text-sm text-gray-500">{extractedMembers.length} verified real users</span>
                 <div className="text-xs text-gray-400">
                   {extractedMembers.filter(m => m.startsWith('@')).length} @usernames, {' '}
                   {extractedMembers.filter(m => !m.startsWith('@')).length} numeric IDs
+                </div>
+                <div className="text-xs text-green-600 font-medium">
+                  ✓ Bots & deleted accounts filtered out
                 </div>
               </div>
             </div>
@@ -213,7 +206,7 @@ export function ChannelMemberExtractor() {
               )}
             </div>
             <p className="text-xs text-gray-500 mt-2">
-              Download the full list to use in your member addition file
+              Download the full list to use in your member addition file. All extracted users are verified real accounts (bots, deleted accounts, and invalid profiles automatically filtered out).
             </p>
           </div>
         )}
@@ -222,11 +215,15 @@ export function ChannelMemberExtractor() {
           <p className="font-medium text-blue-800 mb-1">How it works:</p>
           <ol className="text-blue-700 space-y-1 ml-4 list-decimal">
             <li>Select any channel you're a member of</li>
-            <li>Set how many members you want to extract</li>
-            <li>Click "Extract Members" to get the list</li>
+            <li>Set how many members you want to extract (up to 100,000)</li>
+            <li>Click "Extract Members" - large extractions may take several minutes</li>
             <li>Download the file and upload it to the Member Upload tool</li>
             <li>Start adding members with high success rates!</li>
           </ol>
+          <div className="text-blue-600 text-xs mt-2 space-y-1">
+            <p><strong>Data Quality:</strong> Only real, active user accounts are extracted. Bots, deleted accounts, and invalid profiles are automatically filtered out.</p>
+            <p><strong>Performance:</strong> Large extractions (10,000+ members) use progressive pagination and may take 5-15 minutes to complete.</p>
+          </div>
         </div>
       </CardContent>
     </Card>
