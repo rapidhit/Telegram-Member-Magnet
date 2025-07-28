@@ -28,12 +28,8 @@ export function ChannelSelector({ selectedChannel, onChannelSelect }: ChannelSel
     enabled: !!telegramAccountId,
   });
 
-  const handleRefresh = async () => {
-    // Force refresh by calling the API with refresh=true parameter
-    const response = await fetch(`/api/telegram/channels/${telegramAccountId}?refresh=true`);
-    if (response.ok) {
-      refetch();
-    }
+  const handleRefresh = () => {
+    refetch();
   };
 
   return (
@@ -97,12 +93,21 @@ export function ChannelSelector({ selectedChannel, onChannelSelect }: ChannelSel
                     </div>
                   </div>
                   <div className="flex items-center space-x-2">
-                    <Badge 
-                      variant="secondary" 
-                      className="bg-[hsl(134,61%,54%)] text-white hover:bg-[hsl(134,61%,44%)]"
-                    >
-                      Admin
-                    </Badge>
+                    {channel.isAdmin ? (
+                      <Badge 
+                        variant="secondary" 
+                        className="bg-[hsl(134,61%,54%)] text-white hover:bg-[hsl(134,61%,44%)]"
+                      >
+                        Admin
+                      </Badge>
+                    ) : (
+                      <Badge 
+                        variant="secondary" 
+                        className="bg-blue-500 text-white hover:bg-blue-600"
+                      >
+                        Member
+                      </Badge>
+                    )}
                   </div>
                 </div>
               </div>
@@ -111,9 +116,9 @@ export function ChannelSelector({ selectedChannel, onChannelSelect }: ChannelSel
         ) : (
           <div className="text-center py-8">
             <Users className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-            <p className="text-gray-500">No admin channels found</p>
+            <p className="text-gray-500">No channels found</p>
             <p className="text-sm text-gray-400 mt-1">
-              You need admin access to channels to add members
+              Connect your Telegram account to see available channels
             </p>
           </div>
         )}
