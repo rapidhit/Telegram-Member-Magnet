@@ -722,9 +722,31 @@ async function processMemberAdditionJob(job: any, telegramAccount: any) {
           failedCount++;
           console.log(`✗ Failed to add user ${userId} (${failedCount} total failures)`);
         }
-      } catch (error) {
+      } catch (error: any) {
         console.error(`Failed to add user ${userId}:`, error);
         failedCount++;
+        
+        // Check for PEER_FLOOD and automatically pause the job
+        if (error.message && error.message.includes('PEER_FLOOD')) {
+          console.log(`🛑 PEER_FLOOD detected - automatically pausing job to prevent further rate limiting`);
+          
+          await storage.updateMemberAdditionJob(job.id, {
+            status: "paused",
+            addedMembers: addedCount,
+            failedMembers: failedCount,
+          });
+          
+          await storage.createActivityLog({
+            telegramAccountId: job.telegramAccountId,
+            jobId: job.id,
+            action: "job_auto_paused",
+            details: `Job auto-paused due to PEER_FLOOD at ${addedCount} added/${failedCount} failed. Rate limit reached - wait 15+ minutes before resuming.`,
+            status: "warning",
+          });
+          
+          console.log(`📊 Job paused automatically. Success rate: ${addedCount}/${addedCount + failedCount} (${Math.round((addedCount / (addedCount + failedCount)) * 100)}%)`);
+          return; // Exit the processing loop
+        }
       }
 
       // Update job progress with exact counts
@@ -736,13 +758,17 @@ async function processMemberAdditionJob(job: any, telegramAccount: any) {
       
       console.log(`Progress: ${addedCount} added, ${failedCount} failed, ${remaining} remaining`);
 
-      // Rate limiting delay
+      // Rate limiting delay - longer delays to prevent PEER_FLOOD
       if (i < userIds.length - 1) {
-        await new Promise(resolve => setTimeout(resolve, intervalDelay));
+        // Increase base delay to 15 seconds minimum
+        const baseDelay = Math.max(intervalDelay, 15000);
+        await new Promise(resolve => setTimeout(resolve, baseDelay));
         
-        // Batch delay after every rateLimit additions
+        // Longer batch delay after every rateLimit additions
         if ((i + 1) % rateLimit === 0) {
-          await new Promise(resolve => setTimeout(resolve, batchDelay));
+          const extendedBatchDelay = Math.max(batchDelay, 300000); // 5 minutes minimum
+          console.log(`⏱️ Batch delay: waiting ${extendedBatchDelay / 1000} seconds to prevent rate limiting`);
+          await new Promise(resolve => setTimeout(resolve, extendedBatchDelay));
         }
       }
     }
