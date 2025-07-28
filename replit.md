@@ -39,9 +39,6 @@ This is a Channel Member Manager application designed for safely adding members 
 ✓ **Removed Admin-Only Restriction**: Now shows ALL channels you're part of, not just admin channels
 ✓ **Speed Improvements**: Removed slow admin checks, reduced delays, and optimized limits for better performance
 ✓ **Support Integration**: Added direct link to https://t.me/tele_magnet_bot for user support
-✓ **Enhanced Flood Wait Handling**: Implemented automatic job pausing when PEER_FLOOD errors occur to prevent account restrictions
-✓ **Improved Rate Limiting**: Extended delays between invitations (15s minimum) and batch delays (5min minimum) to reduce rate limit issues
-✓ **Better Success Verification**: Contact-based invitations work reliably, system now auto-pauses when hitting Telegram's rate limits
 
 ## User Preferences
 

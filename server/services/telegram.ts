@@ -236,166 +236,106 @@ export class TelegramService {
   private async resolveUserEntity(client: TelegramClient, userId: string) {
     const { Api } = await import("telegram/tl");
     
-    // Enhanced strategies prioritizing high-success methods
+    // Multiple strategies to resolve user entity with improved numeric ID handling
     const strategies = [
-      // Strategy 1: Username resolution (highest success rate)
+      // Strategy 1: Direct ID lookup with proper conversion
       async () => {
-        if (userId.startsWith('@') || /^[a-zA-Z][a-zA-Z0-9_]{4,31}$/.test(userId)) {
-          const username = userId.startsWith('@') ? userId.slice(1) : userId;
+        if (/^\d+$/.test(userId)) {
           try {
-            const entity = await client.getEntity(`@${username}`);
-            console.log(`✓ Username resolution success for @${username}`);
-            return entity;
-          } catch (error) {
-            // Try without @ prefix
+            // Try as string first
+            return await client.getEntity(userId);
+          } catch (error1) {
             try {
-              const entity = await client.getEntity(username);
-              console.log(`✓ Username resolution success for ${username} (no @)`);
-              return entity;
+              // Try as integer
+              return await client.getEntity(parseInt(userId));
             } catch (error2) {
-              return null;
+              try {
+                // Try via InputUser for numeric IDs
+                const { Api } = await import("telegram/tl");
+                const users = await client.invoke(new Api.users.GetUsers({
+                  id: [userId]
+                }));
+                return Array.isArray(users) ? users[0] : users;
+              } catch (error3) {
+                return null;
+              }
             }
           }
         }
         return null;
       },
       
-      // Strategy 2: Contact lookup (very reliable for mutual contacts)
+      // Strategy 2: Username lookup
       async () => {
-        try {
-          const contacts = await client.invoke(new Api.contacts.GetContacts({ hash: 0 }));
-          if ('users' in contacts && Array.isArray(contacts.users)) {
-            const user = contacts.users.find((u: any) => {
-              const cleanUserId = userId.replace('@', '');
-              return u.id.toString() === cleanUserId || 
-                     u.username === cleanUserId ||
-                     u.phone === cleanUserId ||
-                     `@${u.username}` === userId;
-            });
-            if (user) {
-              console.log(`✓ Contact resolution success for ${userId}`);
-              return user;
-            }
-          }
-        } catch (error) {
-          console.log(`Contact lookup failed for ${userId}:`, error);
+        if (userId.startsWith('@') || /^[a-zA-Z][a-zA-Z0-9_]{4,31}$/.test(userId)) {
+          const username = userId.startsWith('@') ? userId.slice(1) : userId;
+          return await client.getEntity(`@${username}`);
         }
         return null;
       },
-
-      // Strategy 3: Recent dialog search (for users you've messaged)
+      
+      // Strategy 3: Search in contacts
       async () => {
-        try {
-          const dialogs = await client.getDialogs({ limit: 100 });
-          for (const dialog of dialogs) {
-            if (dialog.isUser && dialog.entity) {
-              const entity = dialog.entity as any;
-              const cleanUserId = userId.replace('@', '');
-              if (entity.id.toString() === cleanUserId || 
-                  entity.username === cleanUserId ||
-                  entity.phone === cleanUserId) {
-                console.log(`✓ Dialog search success for ${userId}`);
-                return entity;
-              }
-            }
+        const contacts = await client.invoke(new Api.contacts.GetContacts({}));
+        if ('users' in contacts) {
+          const user = contacts.users.find((u: any) => 
+            u.id.toString() === userId || 
+            u.username === userId.replace('@', '') ||
+            u.phone === userId
+          );
+          if (user) {
+            return await client.getEntity(user.id);
           }
-        } catch (error) {
-          console.log(`Dialog search failed for ${userId}:`, error);
         }
         return null;
       },
-
-      // Strategy 4: Enhanced numeric ID resolution
+      
+      // Strategy 4: Search in dialogs/chats
+      async () => {
+        const dialogs = await client.getDialogs({ limit: 200 });
+        for (const dialog of dialogs) {
+          if (dialog.isUser && dialog.entity) {
+            const entity = dialog.entity as any;
+            if (entity.id.toString() === userId || 
+                entity.username === userId.replace('@', '') ||
+                entity.phone === userId) {
+              return entity;
+            }
+          }
+        }
+        return null;
+      },
+      
+      // Strategy 5: Try resolving through peer resolution
       async () => {
         if (/^\d+$/.test(userId)) {
-          const approaches = [
-            // Try direct entity lookup
-            async () => await client.getEntity(parseInt(userId)),
-            async () => await client.getEntity(userId),
-            
-            // Try InputUser approach
-            async () => {
-              const users = await client.invoke(new Api.users.GetUsers({
-                id: [userId]
-              }));
-              return Array.isArray(users) ? users[0] : users;
-            },
-            
-            // Try PeerUser approach
-            async () => await client.getEntity(new Api.PeerUser({ userId: userId })),
-            
-            // Try through GetFullUser
-            async () => {
-              const fullUser = await client.invoke(new Api.users.GetFullUser({
-                id: userId
-              }));
-              return fullUser.users?.[0];
-            }
-          ];
-          
-          for (let i = 0; i < approaches.length; i++) {
-            try {
-              const result = await approaches[i]();
-              if (result) {
-                console.log(`✓ Numeric ID resolution success for ${userId} (approach ${i + 1})`);
-                return result;
-              }
-            } catch (error) {
-              continue;
-            }
+          try {
+            const users = await client.invoke(new Api.users.GetUsers({
+              id: [userId]
+            }));
+            return Array.isArray(users) ? users[0] : users;
+          } catch (error) {
+            return null;
           }
-        }
-        return null;
-      },
-
-      // Strategy 5: Channel participant search (for users in shared channels)
-      async () => {
-        try {
-          const dialogs = await client.getDialogs({ limit: 20 });
-          for (const dialog of dialogs) {
-            if ((dialog.isChannel || dialog.isGroup) && dialog.entity) {
-              try {
-                const participants = await client.getParticipants(dialog.entity, { limit: 100 });
-                const user = participants.find((p: any) => {
-                  const cleanUserId = userId.replace('@', '');
-                  return p.id.toString() === cleanUserId || 
-                         p.username === cleanUserId ||
-                         `@${p.username}` === userId;
-                });
-                if (user) {
-                  console.log(`✓ Channel participant resolution success for ${userId} in ${dialog.title}`);
-                  return user;
-                }
-              } catch (error) {
-                continue;
-              }
-            }
-          }
-        } catch (error) {
-          console.log(`Channel participant search failed for ${userId}:`, error);
         }
         return null;
       }
     ];
 
-    // Try each strategy with better error handling
     for (let i = 0; i < strategies.length; i++) {
       try {
         const result = await strategies[i]();
         if (result) {
-          const finalResult = Array.isArray(result) ? result[0] : result;
-          console.log(`✓ Successfully resolved ${userId} using strategy ${i + 1}`);
-          return finalResult;
+          console.log(`User entity found using strategy ${i + 1} for ${userId}`);
+          return Array.isArray(result) ? result[0] : result;
         }
-        // Small delay between strategies to avoid rate limiting
-        await new Promise(resolve => setTimeout(resolve, 50));
       } catch (error: any) {
         console.log(`Strategy ${i + 1} failed for ${userId}:`, error.message);
         continue;
       }
     }
     
-    console.log(`✗ All resolution strategies failed for user: ${userId}`);
+    console.log(`All strategies failed for user: ${userId}`);
     return null;
   }
 
@@ -405,120 +345,59 @@ export class TelegramService {
     // Get the channel entity to determine its type
     const channelEntity = await client.getEntity(channel.id || channel);
     
-    // Enhanced invitation methods prioritizing success rate
+    // Try multiple invitation methods with improved numeric ID handling
     const methods = [
-      // Method 1: Standard channel invitation (highest success for supergroups/channels)
+      // Method 1: Standard channel invitation (for channels/supergroups)
       async () => {
-        try {
-          const result = await client.invoke(new Api.channels.InviteToChannel({
-            channel: channelEntity,
-            users: [userEntity],
-          }));
-          console.log(`✓ Standard channel invitation successful`);
-          return result;
-        } catch (error: any) {
-          console.log(`Standard invitation failed: ${error.message}`);
-          throw error;
-        }
+        return await client.invoke(new Api.channels.InviteToChannel({
+          channel: channelEntity,
+          users: [userEntity],
+        }));
       },
       
-      // Method 2: Username-based invitation (if user has username) 
+      // Method 2: Add chat user with proper channel ID handling
       async () => {
-        if (userEntity.username) {
-          try {
-            const usernameEntity = await client.getEntity(`@${userEntity.username}`);
-            const result = await client.invoke(new Api.channels.InviteToChannel({
-              channel: channelEntity,
-              users: [usernameEntity],
-            }));
-            console.log(`✓ Username-based invitation successful for @${userEntity.username}`);
-            return result;
-          } catch (error: any) {
-            console.log(`Username invitation failed: ${error.message}`);
-            throw error;
-          }
-        } else {
-          throw new Error("User has no username");
+        // For numeric IDs, ensure proper conversion
+        let chatId = channelEntity.id;
+        if (typeof chatId === 'object' && chatId.toString) {
+          chatId = chatId.toString();
         }
+        
+        return await client.invoke(new Api.messages.AddChatUser({
+          chatId: parseInt(chatId.toString()),
+          userId: userEntity,
+          fwdLimit: 100,
+        }));
       },
       
-      // Method 3: Contact-based invitation (for mutual contacts)
+      // Method 3: Edit chat admin for adding users with permissions
       async () => {
-        try {
-          // First check if user is in contacts
-          const contacts = await client.invoke(new Api.contacts.GetContacts({ hash: 0 }));
-          let contactUser = null;
-          
-          if ('users' in contacts && Array.isArray(contacts.users)) {
-            contactUser = contacts.users.find((u: any) => 
-              u.id.toString() === userEntity.id.toString() ||
-              u.username === userEntity.username
-            );
-          }
-          
-          if (contactUser) {
-            const result = await client.invoke(new Api.channels.InviteToChannel({
-              channel: channelEntity,
-              users: [contactUser],
-            }));
-            console.log(`✓ Contact-based invitation successful`);
-            return result;
-          } else {
-            throw new Error("User not in contacts");
-          }
-        } catch (error: any) {
-          console.log(`Contact invitation failed: ${error.message}`);
-          throw error;
-        }
-      },
-      
-      // Method 4: Enhanced direct user invitation with fresh entity
-      async () => {
-        try {
-          // Re-resolve the user entity to ensure fresh data
-          let freshUserEntity = userEntity;
-          if (userEntity.username) {
-            freshUserEntity = await client.getEntity(`@${userEntity.username}`);
-          } else if (userEntity.id) {
-            freshUserEntity = await client.getEntity(userEntity.id);
-          }
-          
-          const result = await client.invoke(new Api.channels.InviteToChannel({
-            channel: channelEntity,
-            users: [freshUserEntity],
-          }));
-          console.log(`✓ Fresh entity invitation successful`);
-          return result;
-        } catch (error: any) {
-          console.log(`Fresh entity invitation failed: ${error.message}`);
-          throw error;
-        }
+        return await client.invoke(new Api.channels.EditBanned({
+          channel: channelEntity,
+          participant: userEntity,
+          bannedRights: new Api.ChatBannedRights({
+            viewMessages: false,
+            sendMessages: false,
+            sendMedia: false,
+            sendStickers: false,
+            sendGifs: false,
+            sendGames: false,
+            sendInline: false,
+            embedLinks: false,
+            untilDate: 0,
+          }),
+        }));
       }
     ];
 
-    let lastError = null;
-    
-    // Try each method with proper error handling
+    let lastError;
     for (let i = 0; i < methods.length; i++) {
       try {
-        const result = await methods[i]();
-        console.log(`✓ Successfully invited user using method ${i + 1}`);
-        return result;
+        await methods[i]();
+        return; // Success
       } catch (error: any) {
         lastError = error;
-        console.log(`Method ${i + 1} failed: ${error.message}`);
-        
-        // Skip remaining methods for certain unrecoverable errors
-        if (error.message.includes('USER_PRIVACY_RESTRICTED') || 
-            error.message.includes('USER_BLOCKED') ||
-            error.message.includes('USER_DEACTIVATED') ||
-            error.message.includes('USER_BOT')) {
-          console.log(`Unrecoverable error for user, stopping attempts`);
-          throw error;
-        }
-        
-        // Add small delay between methods to avoid rate limiting
-        await new Promise(resolve => setTimeout(resolve, 200));
+        console.log(`Invitation method ${i + 1} failed:`, error.message);
         continue;
       }
     }
