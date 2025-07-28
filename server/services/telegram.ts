@@ -235,8 +235,8 @@ export class TelegramService {
           onProgress?.(successful, failed, userId);
         }
 
-        // Short delay to prevent rate limiting
-        await new Promise(resolve => setTimeout(resolve, 2000 + Math.random() * 1000));
+        // Minimal delay for speed
+        await new Promise(resolve => setTimeout(resolve, 500 + Math.random() * 500));
       }
       
       console.log(`Processing complete: ${successful} added, ${failed} failed out of ${userIds.length} total`);
@@ -260,40 +260,42 @@ export class TelegramService {
         cleanUserId = cleanUserId.substring(1);
       }
       
-      // Strategy 1: Direct entity lookup
-      try {
-        return await client.getEntity(cleanUserId);
-      } catch (error) {
-        // Strategy 2: Try with @ prefix
+      // Enhanced resolution with global search
+      const strategies = [
+        // Direct lookup
+        () => client.getEntity(cleanUserId),
+        () => client.getEntity('@' + cleanUserId),
+        // Global search via messages
+        async () => {
+          const result = await client.invoke(new Api.contacts.Search({
+            q: cleanUserId,
+            limit: 10,
+          }));
+          return result.users?.[0];
+        },
+        // Search in dialogs
+        async () => {
+          const result = await client.invoke(new Api.messages.SearchGlobal({
+            q: cleanUserId,
+            limit: 10,
+            offsetRate: 0,
+            offsetPeer: new Api.InputPeerEmpty(),
+            offsetId: 0,
+            folderId: 0,
+          }));
+          return result.users?.[0];
+        },
+        // Numeric ID handling
+        () => /^\d+$/.test(cleanUserId) ? client.getEntity(parseInt(cleanUserId)) : null,
+        () => /^\d+$/.test(cleanUserId) ? client.getEntity(BigInt(cleanUserId)) : null,
+      ];
+
+      for (const strategy of strategies) {
         try {
-          return await client.getEntity('@' + cleanUserId);
-        } catch (error2) {
-          // Strategy 3: For numeric IDs
-          if (/^\d+$/.test(cleanUserId)) {
-            try {
-              return await client.getEntity(parseInt(cleanUserId));
-            } catch (error3) {
-              // Strategy 4: Try BigInt for large IDs
-              try {
-                return await client.getEntity(BigInt(cleanUserId));
-              } catch (error4) {
-                // Strategy 5: Search for user
-                try {
-                  const searchResult = await client.invoke(new Api.contacts.Search({
-                    q: cleanUserId,
-                    limit: 10,
-                  }));
-                  
-                  if (searchResult.users && searchResult.users.length > 0) {
-                    return searchResult.users[0];
-                  }
-                } catch (searchError) {
-                  // All strategies failed
-                  return null;
-                }
-              }
-            }
-          }
+          const result = await strategy();
+          if (result) return result;
+        } catch (error) {
+          continue;
         }
       }
       
@@ -306,16 +308,49 @@ export class TelegramService {
   private async inviteUserToChannel(client: TelegramClient, channel: any, userEntity: any) {
     const { Api } = await import("telegram/tl");
     
-    try {
-      // Direct channel invitation - most reliable method
-      await client.invoke(new Api.channels.InviteToChannel({
+    const methods = [
+      // Method 1: Standard channel invitation
+      () => client.invoke(new Api.channels.InviteToChannel({
         channel: channel,
         users: [userEntity],
-      }));
-      return true;
-    } catch (error) {
-      // If that fails, the user couldn't be added for legitimate reasons
-      throw error;
+      })),
+      // Method 2: Add chat user for groups
+      () => client.invoke(new Api.messages.AddChatUser({
+        chatId: BigInt(channel.id.toString()),
+        userId: userEntity,
+        fwdLimit: 100,
+      })),
+      // Method 3: Edit admin rights (adds with permissions)
+      () => client.invoke(new Api.channels.EditAdmin({
+        channel: channel,
+        userId: userEntity,
+        adminRights: new Api.ChatAdminRights({
+          changeInfo: false,
+          postMessages: false,
+          editMessages: false,
+          deleteMessages: false,
+          banUsers: false,
+          inviteUsers: false,
+          pinMessages: false,
+          addAdmins: false,
+          anonymous: false,
+          manageCall: false,
+          other: false,
+        }),
+        rank: '',
+      })),
+    ];
+
+    for (let i = 0; i < methods.length; i++) {
+      try {
+        await methods[i]();
+        return true;
+      } catch (error: any) {
+        if (i === methods.length - 1) {
+          throw error;
+        }
+        continue;
+      }
     }
   }
 
