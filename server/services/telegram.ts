@@ -235,8 +235,8 @@ export class TelegramService {
           onProgress?.(successful, failed, userId);
         }
 
-        // Fast delay for better performance
-        await new Promise(resolve => setTimeout(resolve, 1000 + Math.random() * 500));
+        // Short delay to prevent rate limiting
+        await new Promise(resolve => setTimeout(resolve, 2000 + Math.random() * 1000));
       }
       
       console.log(`Processing complete: ${successful} added, ${failed} failed out of ${userIds.length} total`);
@@ -252,42 +252,55 @@ export class TelegramService {
   private async resolveUserEntity(client: TelegramClient, userId: string) {
     const { Api } = await import("telegram/tl");
     
-    // HIGH-SPEED, HIGH-SUCCESS USER RESOLUTION - Only use methods that work
-    const strategies = [
-      // Strategy 1: Direct entity lookup for users in our network
-      async () => {
-        try {
-          return await client.getEntity(userId);
-        } catch (error) {
-          return null;
-        }
-      },
+    try {
+      let cleanUserId = userId.trim();
       
-      // Strategy 2: For numeric IDs, try integer conversion
-      async () => {
-        if (/^\d+$/.test(userId)) {
-          try {
-            return await client.getEntity(parseInt(userId));
-          } catch (error) {
-            return null;
+      // Remove @ if present
+      if (cleanUserId.startsWith('@')) {
+        cleanUserId = cleanUserId.substring(1);
+      }
+      
+      // Strategy 1: Direct entity lookup
+      try {
+        return await client.getEntity(cleanUserId);
+      } catch (error) {
+        // Strategy 2: Try with @ prefix
+        try {
+          return await client.getEntity('@' + cleanUserId);
+        } catch (error2) {
+          // Strategy 3: For numeric IDs
+          if (/^\d+$/.test(cleanUserId)) {
+            try {
+              return await client.getEntity(parseInt(cleanUserId));
+            } catch (error3) {
+              // Strategy 4: Try BigInt for large IDs
+              try {
+                return await client.getEntity(BigInt(cleanUserId));
+              } catch (error4) {
+                // Strategy 5: Search for user
+                try {
+                  const searchResult = await client.invoke(new Api.contacts.Search({
+                    q: cleanUserId,
+                    limit: 10,
+                  }));
+                  
+                  if (searchResult.users && searchResult.users.length > 0) {
+                    return searchResult.users[0];
+                  }
+                } catch (searchError) {
+                  // All strategies failed
+                  return null;
+                }
+              }
+            }
           }
         }
-        return null;
       }
-    ];
-
-    for (let i = 0; i < strategies.length; i++) {
-      try {
-        const result = await strategies[i]();
-        if (result) {
-          return Array.isArray(result) ? result[0] : result;
-        }
-      } catch (error: any) {
-        continue;
-      }
+      
+      return null;
+    } catch (error) {
+      return null;
     }
-    
-    return null;
   }
 
   private async inviteUserToChannel(client: TelegramClient, channel: any, userEntity: any) {
