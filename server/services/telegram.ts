@@ -1,4 +1,4 @@
-import { TelegramClient, StringSession, NewMessage, Api } from "../utils/telegramImports";
+import { TelegramClient, StringSession, NewMessage } from "../utils/telegramImports";
 import type { TelegramAccount, Channel } from "@shared/schema";
 
 export interface TelegramChannel {
@@ -11,8 +11,6 @@ export interface TelegramChannel {
 
 export class TelegramService {
   private clients: Map<number, TelegramClient> = new Map();
-  private channelCache: Map<number, { channels: TelegramChannel[], lastUpdated: number }> = new Map();
-  private readonly CACHE_DURATION = 5 * 60 * 1000; // 5 minutes cache
 
   async sendVerificationCode(
     apiId: string,
@@ -85,84 +83,82 @@ export class TelegramService {
     return client;
   }
 
-  async getAdminChannels(client: TelegramClient, telegramAccountId?: number): Promise<TelegramChannel[]> {
-    // Check cache first if telegramAccountId is provided
-    if (telegramAccountId) {
-      const cached = this.channelCache.get(telegramAccountId);
-      if (cached && Date.now() - cached.lastUpdated < this.CACHE_DURATION) {
-        console.log(`Returning ${cached.channels.length} cached channels for account ${telegramAccountId}`);
-        return cached.channels;
-      }
-    }
-
-    console.log("Loading channels from Telegram API...");
+  async getAdminChannels(client: TelegramClient): Promise<TelegramChannel[]> {
     const dialogs = await client.getDialogs();
     const adminChannels: TelegramChannel[] = [];
-    const me = await client.getMe();
 
-    console.log(`Processing ${dialogs.length} dialogs for accessible channels...`);
+    for (const dialog of dialogs) {
+      if (dialog.isChannel && dialog.entity) {
+        try {
+          const entity = dialog.entity;
+          const channelId = entity.id.toString();
+          
+          // Check if user is admin
+          try {
+            const participants = await client.getParticipants(entity, { 
+              filter: { _: "channelParticipantsAdmins" } as any 
+            });
+            const me = await client.getMe();
+            const isAdmin = participants.some((p: any) => p.id.equals(me.id));
 
-    // Filter to channels and supergroups only - no need for API calls yet
-    const channelDialogs = dialogs.filter(d => d.isChannel && d.entity);
-    
-    for (const dialog of channelDialogs) {
-      try {
-        const entity = dialog.entity;
-        if (!entity) continue;
-        
-        const channelId = entity.id.toString();
-        
-        // Use available entity properties without making additional API calls
-        let isAdmin = false;
-        
-        // Check basic admin indicators from entity properties
-        if ((entity as any).adminRights || 
-            (entity as any).creatorId?.equals?.(me.id) ||
-            (entity as any).creator === true) {
-          isAdmin = true;
+            if (isAdmin) {
+              adminChannels.push({
+                id: channelId,
+                title: (entity as any).title || "Unknown Channel",
+                username: (entity as any).username,
+                memberCount: (entity as any).participantsCount || 0,
+                isAdmin: true,
+              });
+            }
+          } catch (adminCheckError) {
+            // If admin check fails, still include channel but mark as potentially non-admin
+            adminChannels.push({
+              id: channelId,
+              title: (entity as any).title || "Unknown Channel",
+              username: (entity as any).username,
+              memberCount: (entity as any).participantsCount || 0,
+              isAdmin: false,
+            });
+          }
+        } catch (error) {
+          console.error(`Error checking channel ${dialog.entity?.id}:`, error);
         }
-
-        // Include all channels user is part of - they can potentially extract members
-        // Even without admin rights, users can still see channel members in many cases
-        adminChannels.push({
-          id: channelId,
-          title: (entity as any).title || "Unknown Channel",
-          username: (entity as any).username,
-          memberCount: (entity as any).participantsCount || 0,
-          isAdmin,
-        });
-        
-      } catch (error) {
-        console.error(`Error processing channel:`, error);
       }
-    }
-
-    console.log(`Found ${adminChannels.length} accessible channels out of ${channelDialogs.length} total channels`);
-    
-    // Cache the results if telegramAccountId is provided
-    if (telegramAccountId) {
-      this.channelCache.set(telegramAccountId, {
-        channels: adminChannels,
-        lastUpdated: Date.now()
-      });
     }
 
     return adminChannels;
   }
 
-  // Method to clear cache when needed
-  clearChannelCache(telegramAccountId?: number): void {
-    if (telegramAccountId) {
-      this.channelCache.delete(telegramAccountId);
-    } else {
-      this.channelCache.clear();
-    }
-  }
+  async getAllChannels(client: TelegramClient): Promise<TelegramChannel[]> {
+    const dialogs = await client.getDialogs({ limit: 500 }); // Increased limit to get more channels
+    const allChannels: TelegramChannel[] = [];
 
-  // Method to check if channels are cached
-  isCached(telegramAccountId: number): boolean {
-    const cached = this.channelCache.get(telegramAccountId);
-    return cached !== undefined && Date.now() - cached.lastUpdated < this.CACHE_DURATION;
+    console.log(`Found ${dialogs.length} total dialogs`);
+
+    for (const dialog of dialogs) {
+      if (dialog.isChannel && dialog.entity) {
+        try {
+          const entity = dialog.entity;
+          const channelId = entity.id.toString();
+          
+          // Skip admin check entirely for speed - assume not admin unless proven otherwise
+          // Include ALL channels, regardless of admin status
+          allChannels.push({
+            id: channelId,
+            title: (entity as any).title || "Unknown Channel",
+            username: (entity as any).username,
+            memberCount: (entity as any).participantsCount || 0,
+            isAdmin: false, // Set to false for speed, admin check can be done later if needed
+          });
+
+        } catch (error) {
+          console.error(`Error processing channel ${dialog.entity?.id}:`, error);
+        }
+      }
+    }
+
+    console.log(`Found ${allChannels.length} channels total`);
+    return allChannels.sort((a, b) => b.memberCount - a.memberCount); // Sort by member count
   }
 
   async addMembersToChannel(
@@ -179,11 +175,11 @@ export class TelegramService {
       if (!client.connected) {
         console.log("Client disconnected, attempting to reconnect...");
         await client.connect();
-        await new Promise(resolve => setTimeout(resolve, 2000));
+        await new Promise(resolve => setTimeout(resolve, 2000)); // Wait for connection
       }
 
       const channel = await client.getEntity(channelId);
-      
+
       for (const userId of userIds) {
         try {
           // Check connection before each operation
@@ -199,35 +195,27 @@ export class TelegramService {
           userEntity = await this.resolveUserEntity(client, userId);
           
           if (!userEntity) {
-            throw new Error(`Could not resolve user entity for ${userId}`);
+            throw new Error(`Could not resolve user entity for ${userId} - user may not be accessible`);
           }
           
           // Enhanced invitation method with fallback strategies
           await this.inviteUserToChannel(client, channel, userEntity);
           
-          // If we get here without throwing, the user was actually added
           successful++;
-          console.log(`✓ ACTUALLY ADDED user ${userId} to channel`);
+          console.log(`Successfully added user ${userId} to channel`);
           onProgress?.(successful, failed, userId);
           
         } catch (error) {
           const errorMessage = error instanceof Error ? error.message : String(error);
-          console.log(`✗ FAILED to add user ${userId}: ${errorMessage}`);
+          console.log(`Failed to add user ${userId}: ${errorMessage}`);
           
-          // Handle severe rate limits - stop trying if wait time is too long
-          if (errorMessage.includes('FloodWaitError') || errorMessage.includes('FLOOD_WAIT') || errorMessage.includes('A wait of')) {
+          // Handle flood wait errors specifically
+          if (errorMessage.includes('FloodWaitError') || errorMessage.includes('FLOOD_WAIT')) {
             const waitMatch = errorMessage.match(/(\d+) seconds/);
             if (waitMatch) {
               const waitSeconds = parseInt(waitMatch[1]);
-              
-              // If rate limit is over 10 minutes, stop the process
-              if (waitSeconds > 600) {
-                console.log(`Severe rate limit: ${waitSeconds} seconds. Stopping member addition.`);
-                throw new Error(`Severe rate limit detected: ${waitSeconds} seconds wait required.`);
-              }
-              
-              console.log(`Rate limit: waiting ${waitSeconds} seconds before continuing...`);
-              await new Promise(resolve => setTimeout(resolve, (waitSeconds + 10) * 1000));
+              console.log(`Flood wait detected, pausing for ${waitSeconds} seconds...`);
+              await new Promise(resolve => setTimeout(resolve, (waitSeconds + 5) * 1000));
             }
           }
           
@@ -235,39 +223,97 @@ export class TelegramService {
           onProgress?.(successful, failed, userId);
         }
 
-        // Conservative delay to prevent rate limiting
+        // Increased delay to prevent rate limiting (3-5 seconds)
         await new Promise(resolve => setTimeout(resolve, 3000 + Math.random() * 2000));
       }
-      
-      console.log(`⚡ FAST-TRACK COMPLETE: ${successful} added, ${failed} failed in ${accessibleUsers.length + failed} attempts`);
-      
     } catch (error) {
       console.error("Critical error in addMembersToChannel:", error);
     }
 
-    console.log(`FINAL COUNT: ${successful} users ACTUALLY added, ${failed} failed`);
     return { successful, failed };
   }
 
   private async resolveUserEntity(client: TelegramClient, userId: string) {
     const { Api } = await import("telegram/tl");
     
-    // HIGH-SPEED, HIGH-SUCCESS USER RESOLUTION - Only use methods that work
+    // Multiple strategies to resolve user entity with improved numeric ID handling
     const strategies = [
-      // Strategy 1: Direct entity lookup for users in our network
-      async () => {
-        try {
-          return await client.getEntity(userId);
-        } catch (error) {
-          return null;
-        }
-      },
-      
-      // Strategy 2: For numeric IDs, try integer conversion
+      // Strategy 1: Direct ID lookup with proper conversion
       async () => {
         if (/^\d+$/.test(userId)) {
           try {
-            return await client.getEntity(parseInt(userId));
+            // Try as string first
+            return await client.getEntity(userId);
+          } catch (error1) {
+            try {
+              // Try as integer
+              return await client.getEntity(parseInt(userId));
+            } catch (error2) {
+              try {
+                // Try via InputUser for numeric IDs
+                const { Api } = await import("telegram/tl");
+                const users = await client.invoke(new Api.users.GetUsers({
+                  id: [userId]
+                }));
+                return Array.isArray(users) ? users[0] : users;
+              } catch (error3) {
+                return null;
+              }
+            }
+          }
+        }
+        return null;
+      },
+      
+      // Strategy 2: Username lookup
+      async () => {
+        if (userId.startsWith('@') || /^[a-zA-Z][a-zA-Z0-9_]{4,31}$/.test(userId)) {
+          const username = userId.startsWith('@') ? userId.slice(1) : userId;
+          return await client.getEntity(`@${username}`);
+        }
+        return null;
+      },
+      
+      // Strategy 3: Search in contacts
+      async () => {
+        const contacts = await client.invoke(new Api.contacts.GetContacts({}));
+        if ('users' in contacts) {
+          const user = contacts.users.find((u: any) => 
+            u.id.toString() === userId || 
+            u.username === userId.replace('@', '') ||
+            u.phone === userId
+          );
+          if (user) {
+            return await client.getEntity(user.id);
+          }
+        }
+        return null;
+      },
+      
+      // Strategy 4: Search in dialogs/chats
+      async () => {
+        const dialogs = await client.getDialogs({ limit: 200 });
+        for (const dialog of dialogs) {
+          if (dialog.isUser && dialog.entity) {
+            const entity = dialog.entity as any;
+            if (entity.id.toString() === userId || 
+                entity.username === userId.replace('@', '') ||
+                entity.phone === userId) {
+              return entity;
+            }
+          }
+        }
+        return null;
+      },
+      
+      // Strategy 5: Try resolving through peer resolution
+      async () => {
+        if (/^\d+$/.test(userId)) {
+          try {
+            const users = await client.invoke(new Api.users.GetUsers({
+              id: [userId]
+            }));
+            return Array.isArray(users) ? users[0] : users;
           } catch (error) {
             return null;
           }
@@ -280,13 +326,16 @@ export class TelegramService {
       try {
         const result = await strategies[i]();
         if (result) {
+          console.log(`User entity found using strategy ${i + 1} for ${userId}`);
           return Array.isArray(result) ? result[0] : result;
         }
       } catch (error: any) {
+        console.log(`Strategy ${i + 1} failed for ${userId}:`, error.message);
         continue;
       }
     }
     
+    console.log(`All strategies failed for user: ${userId}`);
     return null;
   }
 
@@ -315,7 +364,7 @@ export class TelegramService {
         }
         
         return await client.invoke(new Api.messages.AddChatUser({
-          chatId: BigInt(chatId),
+          chatId: parseInt(chatId.toString()),
           userId: userEntity,
           fwdLimit: 100,
         }));
@@ -368,204 +417,125 @@ export class TelegramService {
   }
 
   async getChannelMembers(client: TelegramClient, channelId: string, limit: number = 1000): Promise<string[]> {
-    const memberUsernames = new Set<string>();
-    
     try {
-      // Ensure client is connected with retry logic
-      for (let attempt = 0; attempt < 3; attempt++) {
-        if (!client.connected) {
-          console.log(`Client connection attempt ${attempt + 1}...`);
-          try {
-            await client.connect();
-            await new Promise(resolve => setTimeout(resolve, 2000));
-            break;
-          } catch (connectError) {
-            console.log(`Connection attempt ${attempt + 1} failed:`, connectError);
-            if (attempt === 2) throw new Error("Failed to connect to Telegram after 3 attempts");
-            await new Promise(resolve => setTimeout(resolve, 5000));
-          }
-        } else {
-          break;
-        }
+      // Ensure client is connected
+      if (!client.connected) {
+        console.log("Client not connected, attempting to connect...");
+        await client.connect();
+        await new Promise(resolve => setTimeout(resolve, 1000));
       }
 
-      console.log(`Getting members from channel ${channelId}...`);
+      const memberUsernames = new Set<string>();
+      
+      console.log(`Getting members from channel ${channelId} with limit ${limit}...`);
       
       try {
         const channel = await client.getEntity(channelId);
         let allParticipants: any[] = [];
         
-        // Method 1: Progressive pagination to get all members
+        // Optimized strategy: Use larger chunks and minimal delays for speed
         try {
-          console.log(`Starting progressive member extraction for up to ${limit} members...`);
-          const maxLimit = Math.min(limit, 100000); // Support up to 100k members
-          let offset = 0;
-          const batchSize = 200;
-          let consecutiveFailures = 0;
-          const maxConsecutiveFailures = 3;
+          const chunkSize = Math.min(500, limit); // Larger chunks for speed
+          const maxChunks = Math.ceil(Math.min(limit, 5000) / chunkSize); // Cap total requests
           
-          while (allParticipants.length < maxLimit && consecutiveFailures < maxConsecutiveFailures) {
+          for (let i = 0; i < maxChunks; i++) {
+            const offset = i * chunkSize;
+            const currentLimit = Math.min(chunkSize, limit - offset);
+            
+            console.log(`Fetching chunk ${i + 1}/${maxChunks} (offset: ${offset}, limit: ${currentLimit})`);
+            
             try {
               const participants = await client.getParticipants(channel, { 
-                limit: batchSize, 
-                offset: offset 
+                limit: currentLimit,
+                offset: offset
               });
               
               if (participants.length === 0) {
-                console.log(`No more participants found at offset ${offset}`);
+                console.log("No more participants found, stopping");
                 break;
               }
               
               allParticipants.push(...participants);
-              offset += participants.length;
-              consecutiveFailures = 0; // Reset failure counter on success
+              console.log(`Chunk ${i + 1}: Found ${participants.length} participants (total: ${allParticipants.length})`);
               
-              // Log progress every 1000 members for large extractions
-              if (allParticipants.length % 1000 === 0 || participants.length < batchSize) {
-                console.log(`Progress: ${allParticipants.length} members extracted (${Math.round((allParticipants.length / maxLimit) * 100)}% of target)`);
-              }
-              
-              // If we got fewer than requested, we've reached the end
-              if (participants.length < batchSize) {
-                console.log("Reached end of member list");
+              // If we got fewer participants than requested, we've reached the end
+              if (participants.length < currentLimit) {
+                console.log("Reached end of participant list");
                 break;
               }
               
-              // Dynamic rate limiting based on extraction size
-              const delay = maxLimit > 10000 ? 800 : 1000; // Faster for large extractions
-              await new Promise(resolve => setTimeout(resolve, delay));
-              
-            } catch (batchError: any) {
-              consecutiveFailures++;
-              console.log(`Batch at offset ${offset} failed (failure ${consecutiveFailures}/${maxConsecutiveFailures}):`, batchError.message);
-              
-              // Handle specific errors
-              if (batchError.message?.includes('ChatAdminRequiredError') || batchError.message?.includes('CHAT_ADMIN_REQUIRED')) {
-                throw new Error("You need admin permissions to view members of this channel");
+              // Minimal delay for speed - only 500ms between chunks
+              if (i < maxChunks - 1) {
+                await new Promise(resolve => setTimeout(resolve, 500));
               }
               
-              if (batchError.message?.includes('ChannelPrivateError') || batchError.message?.includes('CHANNEL_PRIVATE')) {
-                throw new Error("This channel is private and members cannot be accessed");
-              }
-              
-              if (batchError.message?.includes('FloodWaitError') || batchError.message?.includes('FLOOD')) {
-                const waitMatch = batchError.message.match(/(\d+) seconds/);
-                const waitTime = waitMatch ? parseInt(waitMatch[1]) : 300;
-                console.log(`Hit rate limit, waiting ${waitTime} seconds...`);
-                
-                if (waitTime > 600) {
-                  console.log("Rate limit too long, stopping extraction");
-                  break;
-                }
-                
-                await new Promise(resolve => setTimeout(resolve, waitTime * 1000));
-                consecutiveFailures = 0; // Reset after waiting
-                continue;
-              }
-              
-              // For other errors, advance offset and try to continue
-              offset += batchSize;
-              if (offset > maxLimit || consecutiveFailures >= maxConsecutiveFailures) break;
-              
-              // Wait before retrying
-              await new Promise(resolve => setTimeout(resolve, 2000));
+            } catch (chunkError: any) {
+              console.log(`Chunk ${i + 1} failed:`, chunkError.message);
+              // If this chunk fails, try to continue with what we have
+              break;
             }
           }
-          
-          console.log(`Method 1: Found ${allParticipants.length} total participants`);
           
         } catch (error: any) {
-          console.log("Method 1 failed:", error.message);
+          console.log("Chunked approach failed, trying single request:", error.message);
           
-          // If permission error, provide helpful message
-          if (error.message?.includes('ChatAdminRequiredError') || error.message?.includes('CHAT_ADMIN_REQUIRED')) {
-            throw new Error("You need admin permissions to view members of this channel");
-          }
-          
-          if (error.message?.includes('ChannelPrivateError') || error.message?.includes('CHANNEL_PRIVATE')) {
-            throw new Error("This channel is private and members cannot be accessed");
-          }
+          // Fallback: Try single request with reasonable limit
+          const participants = await client.getParticipants(channel, { 
+            limit: Math.min(limit, 500)
+          });
+          allParticipants = participants;
         }
         
-        // Method 2: Fallback if pagination failed
-        if (allParticipants.length === 0) {
-          try {
-            console.log("Trying fallback single request...");
-            const participants = await client.getParticipants(channel, { limit: 1000 });
-            allParticipants = [...participants];
-            console.log(`Method 2: Found ${participants.length} participants via fallback`);
-          } catch (error: any) {
-            console.log("Method 2 failed:", error.message);
-          }
-        }
+        console.log(`Total participants retrieved: ${allParticipants.length}`);
         
         if (allParticipants.length === 0) {
-          throw new Error("No members found. This might be due to channel privacy settings or insufficient permissions.");
+          throw new Error("No participants found in this channel");
         }
         
-        console.log(`Total participants found: ${allParticipants.length}`);
-        
-        // Extract REAL member identifiers with strict validation
+        // Count users with usernames vs without
         let usersWithUsernames = 0;
         let usersWithoutUsernames = 0;
-        let skippedUsers = 0;
         
         allParticipants.forEach((user: any) => {
-          // Strict validation to ensure we only add real users
-          if (user && user.id && typeof user.id !== 'undefined') {
-            // Skip bots and deleted accounts
-            if (user.bot === true) {
-              skippedUsers++;
-              return;
-            }
-            
-            // Skip users with invalid or missing data
-            if (user.deleted === true || user.min === true) {
-              skippedUsers++;
-              return;
-            }
-            
-            // Prefer username format for better success rates
-            if (user.username && typeof user.username === 'string' && user.username.trim().length > 0) {
-              usersWithUsernames++;
-              memberUsernames.add(`@${user.username.trim()}`);
-            } else if (user.id && !isNaN(user.id)) {
-              usersWithoutUsernames++;
-              // Only add numeric ID if it's a valid number and no username exists
-              memberUsernames.add(user.id.toString());
-            } else {
-              skippedUsers++;
-            }
+          if (user.username) {
+            usersWithUsernames++;
           } else {
-            skippedUsers++;
+            usersWithoutUsernames++;
           }
         });
         
-        console.log(`Real users extracted - Usernames: ${usersWithUsernames}, Numeric IDs: ${usersWithoutUsernames}, Skipped (bots/invalid): ${skippedUsers}`);
+        console.log(`Users with usernames: ${usersWithUsernames}, Users without usernames: ${usersWithoutUsernames}`);
         
-        // Final validation and deduplication
-        const result = Array.from(memberUsernames).filter(member => {
-          // Remove any empty or invalid entries
-          if (!member || typeof member !== 'string' || member.trim().length === 0) {
-            return false;
+        // Extract member identifiers
+        allParticipants.forEach((user: any) => {
+          if (user.id) {
+            // Prefer username format for better success rates, fallback to numeric ID
+            if (user.username) {
+              memberUsernames.add(`@${user.username}`);
+            } else {
+              // Only add numeric ID if no username exists
+              memberUsernames.add(user.id.toString());
+            }
           }
-          
-          // Validate username format
-          if (member.startsWith('@')) {
-            return member.length > 1 && /^@[a-zA-Z0-9_]{1,32}$/.test(member);
-          }
-          
-          // Validate numeric ID format
-          return /^\d+$/.test(member) && parseInt(member) > 0;
         });
         
-        console.log(`Final result: ${result.length} verified unique member identifiers from ${allParticipants.length} total participants`);
-        console.log(`Accuracy: ${Math.round((result.length / allParticipants.length) * 100)}% valid members extracted`);
+        const result = Array.from(memberUsernames);
+        console.log(`Extracted ${result.length} unique member identifiers from channel`);
         return result;
         
-      } catch (error) {
+      } catch (error: any) {
         console.error("Error getting channel participants:", error);
-        throw new Error(`Cannot access members of this channel. You may not have sufficient permissions.`);
+        
+        // Handle specific error types with helpful messages
+        if (error.message?.includes('CHAT_ADMIN_REQUIRED')) {
+          throw new Error(`Admin permissions required to view members of this channel. You need to be an admin to extract members from this channel.`);
+        } else if (error.message?.includes('CHANNEL_PRIVATE')) {
+          throw new Error(`This is a private channel. You may not have access to view its members.`);
+        } else if (error.message?.includes('CHAT_ID_INVALID')) {
+          throw new Error(`Invalid channel ID. Please make sure you selected a valid channel.`);
+        } else {
+          throw new Error(`Cannot access members of this channel. You may not have sufficient permissions or the channel may be restricted.`);
+        }
       }
       
     } catch (error) {
@@ -592,7 +562,7 @@ export class TelegramService {
       try {
         console.log("Getting direct contacts...");
         const contacts = await client.invoke(new Api.contacts.GetContacts({
-          hash: BigInt(0)
+          hash: 0
         }));
         
         if ('users' in contacts && Array.isArray(contacts.users)) {
