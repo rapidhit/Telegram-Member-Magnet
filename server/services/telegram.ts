@@ -195,19 +195,19 @@ export class TelegramService {
 
           let userEntity;
           
-          // Enhanced entity resolution with multiple fallback strategies
+          // Try to resolve and add user
           userEntity = await this.resolveUserEntity(client, userId);
           
           if (!userEntity) {
             throw new Error(`Could not resolve user entity for ${userId}`);
           }
           
-          // Enhanced invitation method with fallback strategies
+          // Add user to channel
           await this.inviteUserToChannel(client, channel, userEntity);
           
-          // If we get here without throwing, the user was actually added
+          // Success - user was added
           successful++;
-          console.log(`✓ ACTUALLY ADDED user ${userId} to channel`);
+          console.log(`✓ Added user ${userId} to channel`);
           onProgress?.(successful, failed, userId);
           
         } catch (error) {
@@ -220,14 +220,14 @@ export class TelegramService {
             if (waitMatch) {
               const waitSeconds = parseInt(waitMatch[1]);
               
-              // If rate limit is over 10 minutes, stop the process
-              if (waitSeconds > 600) {
-                console.log(`Severe rate limit: ${waitSeconds} seconds. Stopping member addition.`);
-                throw new Error(`Severe rate limit detected: ${waitSeconds} seconds wait required.`);
+              // If rate limit is over 5 minutes, stop the process
+              if (waitSeconds > 300) {
+                console.log(`Rate limit too long: ${waitSeconds} seconds. Stopping.`);
+                throw new Error(`Rate limit: ${waitSeconds} seconds wait required.`);
               }
               
-              console.log(`Rate limit: waiting ${waitSeconds} seconds before continuing...`);
-              await new Promise(resolve => setTimeout(resolve, (waitSeconds + 10) * 1000));
+              console.log(`Waiting ${waitSeconds} seconds for rate limit...`);
+              await new Promise(resolve => setTimeout(resolve, (waitSeconds + 5) * 1000));
             }
           }
           
@@ -235,17 +235,17 @@ export class TelegramService {
           onProgress?.(successful, failed, userId);
         }
 
-        // Conservative delay to prevent rate limiting
-        await new Promise(resolve => setTimeout(resolve, 3000 + Math.random() * 2000));
+        // Fast delay for better performance
+        await new Promise(resolve => setTimeout(resolve, 1000 + Math.random() * 500));
       }
       
-      console.log(`⚡ FAST-TRACK COMPLETE: ${successful} added, ${failed} failed in ${accessibleUsers.length + failed} attempts`);
+      console.log(`Processing complete: ${successful} added, ${failed} failed out of ${userIds.length} total`);
       
     } catch (error) {
       console.error("Critical error in addMembersToChannel:", error);
     }
 
-    console.log(`FINAL COUNT: ${successful} users ACTUALLY added, ${failed} failed`);
+    console.log(`Final result: ${successful} users added, ${failed} failed`);
     return { successful, failed };
   }
 
