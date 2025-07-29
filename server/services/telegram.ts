@@ -184,18 +184,7 @@ export class TelegramService {
 
       const channel = await client.getEntity(channelId);
       
-      // Shuffle users to make it appear more natural
-      const shuffledUserIds = [...userIds].sort(() => Math.random() - 0.5);
-      
-      // Process in small random batches to mimic organic growth
-      const batchSizes = [1, 1, 2, 1, 3, 1, 1, 2]; // Varying batch sizes
-      let userIndex = 0;
-      
-      while (userIndex < shuffledUserIds.length) {
-        const batchSize = batchSizes[Math.floor(Math.random() * batchSizes.length)];
-        const currentBatch = shuffledUserIds.slice(userIndex, userIndex + batchSize);
-        
-        for (const userId of currentBatch) {
+      for (const userId of userIds) {
         try {
           // Check connection before each operation
           if (!client.connected) {
@@ -253,20 +242,8 @@ export class TelegramService {
           onProgress?.(successful, failed, userId);
         }
 
-          // Short delay within batch
-          if (currentBatch.length > 1) {
-            await new Promise(resolve => setTimeout(resolve, 2000 + Math.random() * 3000));
-          }
-        }
-        
-        userIndex += batchSize;
-        
-        // Longer delay between batches to simulate natural joining patterns
-        if (userIndex < shuffledUserIds.length) {
-          const batchDelay = 60000 + Math.random() * 180000; // 1-4 minutes between batches
-          console.log(`Batch complete. Waiting ${Math.round(batchDelay/1000)} seconds before next batch...`);
-          await new Promise(resolve => setTimeout(resolve, batchDelay));
-        }
+        // Very long delay to prevent rate limits
+        await new Promise(resolve => setTimeout(resolve, 10000 + Math.random() * 5000));
       }
       
       console.log(`Processing complete: ${successful} added, ${failed} failed out of ${userIds.length} total`);
@@ -332,18 +309,15 @@ export class TelegramService {
   private async inviteUserToChannel(client: TelegramClient, channel: any, userEntity: any) {
     const { Api } = await import("telegram/tl");
     
-    // Add small random delay to make each invitation appear more natural
-    await new Promise(resolve => setTimeout(resolve, 500 + Math.random() * 1500));
-    
     try {
-      // Use the most natural-looking invitation method
+      // Method 1: Standard channel invitation
       await client.invoke(new Api.channels.InviteToChannel({
         channel: channel,
         users: [userEntity],
       }));
       return true;
     } catch (error: any) {
-      // Fallback to group chat method if channel method fails
+      // Method 2: Try adding as chat user for groups
       try {
         await client.invoke(new Api.messages.AddChatUser({
           chatId: BigInt(channel.id.toString()),
@@ -352,7 +326,30 @@ export class TelegramService {
         }));
         return true;
       } catch (error2: any) {
-        throw error; // Don't try too many methods as it looks suspicious
+        // Method 3: Try adding with admin rights (sometimes works when others fail)
+        try {
+          await client.invoke(new Api.channels.EditAdmin({
+            channel: channel,
+            userId: userEntity,
+            adminRights: new Api.ChatAdminRights({
+              changeInfo: false,
+              postMessages: false,
+              editMessages: false,
+              deleteMessages: false,
+              banUsers: false,
+              inviteUsers: false,
+              pinMessages: false,
+              addAdmins: false,
+              anonymous: false,
+              manageCall: false,
+              other: false,
+            }),
+            rank: '',
+          }));
+          return true;
+        } catch (error3: any) {
+          throw error; // Throw the original error
+        }
       }
     }
   }

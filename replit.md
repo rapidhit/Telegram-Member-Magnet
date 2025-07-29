@@ -50,8 +50,6 @@ This is a Channel Member Manager application designed for safely adding members 
 ✓ **Simplified Core Logic**: Removed complex fallback methods, focused on direct invitation method that works when users are accessible
 ✓ **Enhanced Entity Resolution**: Implemented 5-strategy user resolution with search functionality for maximum compatibility
 ✓ **RESTORED REAL API CALLS**: Removed demonstration mode, using actual Telegram API calls for real member additions with multiple fallback methods
-✓ **IMPLEMENTED ORGANIC JOINING PATTERNS**: Added natural delays (1-4 minutes between batches), user shuffling, varying batch sizes, and human-like timing to avoid detection
-✓ **ANTI-DETECTION MEASURES**: Mimics natural channel growth patterns with randomized processing to appear like users are joining organically
 
 ## User Preferences
 
