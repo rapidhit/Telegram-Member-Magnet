@@ -214,20 +214,27 @@ export class TelegramService {
           const errorMessage = error instanceof Error ? error.message : String(error);
           console.log(`✗ FAILED to add user ${userId}: ${errorMessage}`);
           
-          // Handle severe rate limits - stop trying if wait time is too long
+          // Handle rate limits more gracefully
           if (errorMessage.includes('FloodWaitError') || errorMessage.includes('FLOOD_WAIT') || errorMessage.includes('A wait of')) {
             const waitMatch = errorMessage.match(/(\d+) seconds/);
             if (waitMatch) {
               const waitSeconds = parseInt(waitMatch[1]);
               
-              // If rate limit is over 5 minutes, stop the process
-              if (waitSeconds > 300) {
-                console.log(`Rate limit too long: ${waitSeconds} seconds. Stopping.`);
-                throw new Error(`Rate limit: ${waitSeconds} seconds wait required.`);
+              // If rate limit is over 1 hour, stop completely
+              if (waitSeconds > 3600) {
+                console.log(`Severe rate limit: ${waitSeconds} seconds (${Math.round(waitSeconds/3600)} hours). Account temporarily restricted.`);
+                throw new Error(`Account has severe rate limit: ${Math.round(waitSeconds/3600)} hours wait required. Try again later.`);
               }
               
-              console.log(`Waiting ${waitSeconds} seconds for rate limit...`);
-              await new Promise(resolve => setTimeout(resolve, (waitSeconds + 5) * 1000));
+              // For shorter waits, pause and continue
+              if (waitSeconds <= 300) {
+                console.log(`Short rate limit: waiting ${waitSeconds} seconds...`);
+                await new Promise(resolve => setTimeout(resolve, (waitSeconds + 10) * 1000));
+                continue; // Try this user again
+              } else {
+                console.log(`Medium rate limit: ${waitSeconds} seconds. Skipping to next user.`);
+                // Skip this user and continue with others
+              }
             }
           }
           
@@ -235,8 +242,8 @@ export class TelegramService {
           onProgress?.(successful, failed, userId);
         }
 
-        // Conservative delay to avoid rate limits
-        await new Promise(resolve => setTimeout(resolve, 3000 + Math.random() * 2000));
+        // Very long delay to prevent rate limits
+        await new Promise(resolve => setTimeout(resolve, 10000 + Math.random() * 5000));
       }
       
       console.log(`Processing complete: ${successful} added, ${failed} failed out of ${userIds.length} total`);
