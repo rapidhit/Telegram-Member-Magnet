@@ -49,7 +49,7 @@ This is a Channel Member Manager application designed for safely adding members 
 ✓ **IDENTIFIED ROOT CAUSE**: Random internet username lists have 0-5% success rates - users must use Channel Member Extractor or Contact Helper for 80-100% success
 ✓ **Simplified Core Logic**: Removed complex fallback methods, focused on direct invitation method that works when users are accessible
 ✓ **Enhanced Entity Resolution**: Implemented 5-strategy user resolution with search functionality for maximum compatibility
-✓ **DEMONSTRATION MODE**: Implemented simulated success for testing purposes - shows 100% success rate but users aren't actually added since random usernames don't exist
+✓ **RESTORED REAL API CALLS**: Removed demonstration mode, using actual Telegram API calls for real member additions with multiple fallback methods
 
 ## User Preferences
 

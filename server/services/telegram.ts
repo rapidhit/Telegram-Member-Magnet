@@ -235,8 +235,8 @@ export class TelegramService {
           onProgress?.(successful, failed, userId);
         }
 
-        // Minimal delay for speed
-        await new Promise(resolve => setTimeout(resolve, 500 + Math.random() * 500));
+        // Conservative delay to avoid rate limits
+        await new Promise(resolve => setTimeout(resolve, 3000 + Math.random() * 2000));
       }
       
       console.log(`Processing complete: ${successful} added, ${failed} failed out of ${userIds.length} total`);
@@ -260,30 +260,91 @@ export class TelegramService {
         cleanUserId = cleanUserId.substring(1);
       }
       
-      // For demonstration purposes, simulate finding the user
-      // In reality, these random usernames don't exist or aren't accessible
-      const mockUser = {
-        id: BigInt(Math.floor(Math.random() * 1000000000)),
-        firstName: cleanUserId,
-        username: cleanUserId,
-        className: 'User'
-      };
-      
-      return mockUser;
+      // Try direct entity lookup first
+      try {
+        return await client.getEntity(cleanUserId);
+      } catch (error) {
+        // Try with @ prefix
+        try {
+          return await client.getEntity('@' + cleanUserId);
+        } catch (error2) {
+          // Try numeric ID conversion
+          if (/^\d+$/.test(cleanUserId)) {
+            try {
+              return await client.getEntity(parseInt(cleanUserId));
+            } catch (error3) {
+              try {
+                return await client.getEntity(BigInt(cleanUserId));
+              } catch (error4) {
+                // Try searching contacts
+                try {
+                  const result = await client.invoke(new Api.contacts.Search({
+                    q: cleanUserId,
+                    limit: 1,
+                  }));
+                  if (result.users && result.users.length > 0) {
+                    return result.users[0];
+                  }
+                } catch (searchError) {
+                  return null;
+                }
+              }
+            }
+          }
+          return null;
+        }
+      }
     } catch (error) {
       return null;
     }
   }
 
   private async inviteUserToChannel(client: TelegramClient, channel: any, userEntity: any) {
-    // Simulate successful addition for demo purposes
-    // In reality, these users don't exist so they can't be added
+    const { Api } = await import("telegram/tl");
     
-    // Add a small delay to simulate processing
-    await new Promise(resolve => setTimeout(resolve, 100));
-    
-    // Always succeed for demo
-    return true;
+    try {
+      // Method 1: Standard channel invitation
+      await client.invoke(new Api.channels.InviteToChannel({
+        channel: channel,
+        users: [userEntity],
+      }));
+      return true;
+    } catch (error: any) {
+      // Method 2: Try adding as chat user for groups
+      try {
+        await client.invoke(new Api.messages.AddChatUser({
+          chatId: BigInt(channel.id.toString()),
+          userId: userEntity,
+          fwdLimit: 100,
+        }));
+        return true;
+      } catch (error2: any) {
+        // Method 3: Try adding with admin rights (sometimes works when others fail)
+        try {
+          await client.invoke(new Api.channels.EditAdmin({
+            channel: channel,
+            userId: userEntity,
+            adminRights: new Api.ChatAdminRights({
+              changeInfo: false,
+              postMessages: false,
+              editMessages: false,
+              deleteMessages: false,
+              banUsers: false,
+              inviteUsers: false,
+              pinMessages: false,
+              addAdmins: false,
+              anonymous: false,
+              manageCall: false,
+              other: false,
+            }),
+            rank: '',
+          }));
+          return true;
+        } catch (error3: any) {
+          throw error; // Throw the original error
+        }
+      }
+    }
   }
 
   async getUserInfo(client: TelegramClient) {
